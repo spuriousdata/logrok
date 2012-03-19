@@ -231,11 +231,9 @@ def main():
         lines += logfile.readlines()
         logfile.close()
 
-    num_p = int(cpu_count()*1.5)
-
     print "passing off to workers"
     print "processing %d lines" % len(lines)
-    for i in xrange(0, num_p):
+    for i in xrange(0, args.processes):
         p = Process(target=func, args=(task_queue,))
         p.start()
         processes.append(p)
@@ -245,7 +243,7 @@ def main():
         i += 1
         task_queue.put(line)
 
-    for i in range(0, num_p):
+    for i in range(0, args.processes):
         task_queue.put('STOP')
     
     for p in processes:
