@@ -233,8 +233,12 @@ class LoGrok(object):
             c = self.screen.getch()
             if c == ord('\n'): break
             query += chr(c)
+        self.run(query)
         curses.noecho()
         curses.cbreak()
+
+    def run(self, q):
+        pass
 
     def main_loop(self):
         while 1:
