@@ -5,6 +5,7 @@ import sys
 import re
 
 from functools import partial
+from multiprocessing import Process, cpu_count, Queue
 
 TYPES = {
     'apache-common': "%h %l %u %t \"%r\" %>s %b",
@@ -97,18 +98,18 @@ FORMAT = {
     'A': (Regex.host, "local_ip"),
     'B': (Regex.number, "body_size"),
     'b': (partial(Regex._or, Regex.number, Regex.nil), "body_size"),
-    'C': (Regex.string, None),
+    'C': (Regex.string, "cookie"),
     'D': (Regex.number, "response_time_ms_"),
-    'e': (Regex.string, None),
+    'e': (Regex.string, "environment_var"),
     'f': (Regex.string, "filename"),
     'h': (Regex.host, "remote_host"),
     'H': (Regex.string, "protocol"),
-    'i': (Regex.string, None),
+    'i': (Regex.string, "input_header"),
     'l': (Regex.string, "logname"),
     'm': (Regex.string, "method"),
     'M': (Regex.any, "message"),
-    'n': (Regex.string, None),
-    'o': (Regex.string, None),
+    'n': (Regex.string, "note"),
+    'o': (Regex.string, "output_header"),
     'p': (Regex.number, "port"),
     'P': (Regex.number, "pid"),
     'q': (Regex.string, "query_string"),
@@ -194,11 +195,22 @@ def parse_format_string(fmt):
             raise SyntaxError()
     return output + r'$'
 
+def rx_closure(rx):
+    def dorx(q):
+        r = re.compile(rx)
+        while True:
+            line = q.get()
+            if line == 'STOP':
+                break
+            r.match(line)
+    return dorx
+
 def main():
     cmd = argparse.ArgumentParser(description="Grok/Query/Aggregate log files")
     typ = cmd.add_mutually_exclusive_group(required=True)
     typ.add_argument('-t', '--type', metavar='TYPE', choices=TYPES, help='{%s} Use built-in log type'%', '.join(TYPES))
     typ.add_argument('-f', '--format', action='store', help='Log format (use apache LogFormat string)')
+    cmd.add_argument('-j', '--processes', action='store', help='Number of processes to fork for log crunching', default=int(cpu_count()*1.5))
     cmd.add_argument('logfile', nargs='+', type=argparse.FileType('r'))
     args = cmd.parse_args(sys.argv[1:])
 
@@ -207,18 +219,37 @@ def main():
     else:
         logformat = TYPES[args.type]
 
-    rxs = parse_format_string(logformat)
-    print logformat
-    print rxs
-    rx = re.compile(rxs)
+    print "fount %d cpus" % cpu_count()
+
+    regex = parse_format_string(logformat)
+    func = rx_closure(regex)
+    task_queue = Queue()
+    processes = []
+
+    lines = []
+    for logfile in args.logfile:
+        lines += logfile.readlines()
+        logfile.close()
+
+    print "passing off to workers"
+    print "processing %d lines" % len(lines)
+    for i in xrange(0, args.processes):
+        p = Process(target=func, args=(task_queue,))
+        p.start()
+        processes.append(p)
+
+    i = 0
+    for line in lines:
+        i += 1
+        task_queue.put(line)
+
+    for i in range(0, args.processes):
+        task_queue.put('STOP')
     
-    line = args.logfile[0].readline()
-    print line
-    m = rx.match(line)
+    for p in processes:
+        p.join()
 
-    print "found %d groups" % len(m.groups())
-
-    print rx.groupindex
+    print "done!"
 
 
 if __name__ == '__main__':
