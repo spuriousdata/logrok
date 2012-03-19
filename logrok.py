@@ -3,6 +3,7 @@
 import argparse
 import sys
 import re
+import curses
 
 from functools import partial
 from multiprocessing import Process, cpu_count, Queue
@@ -99,7 +100,7 @@ FORMAT = {
     'B': (Regex.number, "body_size"),
     'b': (partial(Regex._or, Regex.number, Regex.nil), "body_size"),
     'C': (Regex.string, "cookie"),
-    'D': (Regex.number, "response_time_ms_"),
+    'D': (Regex.number, "response_time_ms"),
     'e': (Regex.string, "environment_var"),
     'f': (Regex.string, "filename"),
     'h': (Regex.host, "remote_host"),
@@ -196,61 +197,124 @@ def parse_format_string(fmt):
     return output + r'$'
 
 def rx_closure(rx):
-    def dorx(q):
+    def dorx(iq, oq):
         r = re.compile(rx)
-        while True:
-            line = q.get()
-            if line == 'STOP':
-                break
-            r.match(line)
+        for line in iter(iq.get, 'STOP'):
+            out = {}
+            m = r.match(line)
+            for key in r.groupindex:
+                out[key] = m.group(key)
+            oq.put(out)
     return dorx
 
-def main():
-    cmd = argparse.ArgumentParser(description="Grok/Query/Aggregate log files")
-    typ = cmd.add_mutually_exclusive_group(required=True)
-    typ.add_argument('-t', '--type', metavar='TYPE', choices=TYPES, help='{%s} Use built-in log type'%', '.join(TYPES))
-    typ.add_argument('-f', '--format', action='store', help='Log format (use apache LogFormat string)')
-    cmd.add_argument('-j', '--processes', action='store', help='Number of processes to fork for log crunching', default=int(cpu_count()*1.5))
-    cmd.add_argument('logfile', nargs='+', type=argparse.FileType('r'))
-    args = cmd.parse_args(sys.argv[1:])
-
+def crunchlogs(scr, args):
     if args.format is not None:
         logformat = args.format
     else:
         logformat = TYPES[args.type]
 
-    print "fount %d cpus" % cpu_count()
-
     regex = parse_format_string(logformat)
     func = rx_closure(regex)
     task_queue = Queue()
+    result_queue = Queue()
     processes = []
 
     lines = []
     for logfile in args.logfile:
+        print_header(scr, "   Reading %s" % logfile.name)
         lines += logfile.readlines()
         logfile.close()
 
-    print "passing off to workers"
-    print "processing %d lines" % len(lines)
     for i in xrange(0, args.processes):
-        p = Process(target=func, args=(task_queue,))
+        p = Process(target=func, args=(task_queue, result_queue))
         p.start()
         processes.append(p)
 
-    i = 0
-    for line in lines:
-        i += 1
+    for line in lines[:1000]:
         task_queue.put(line)
 
     for i in range(0, args.processes):
         task_queue.put('STOP')
     
-    for p in processes:
-        p.join()
+    return processes, result_queue
 
-    print "done!"
+def print_header(scr, s):
+    (height, width) = scr.getmaxyx()
+    fullwidth = "%%-%ds" % width
+    scr.addstr(1, 0, fullwidth % s, curses.A_STANDOUT)
+    scr.refresh()
 
+def interactive(scr, args):
+    (height, width) = scr.getmaxyx()
+    procs, result = crunchlogs(scr, args)
+    data = []
+    while True:
+        if check_running(procs):
+            data += get_data(scr, result)
+        else:
+            break
+    data += get_data(scr, result)
+    draw_start_screen(scr, data)
+    main_loop(scr)
+
+def get_data(scr, queue):
+    data = []
+    while True:
+        try:
+            row = queue.get(True, 1)
+            get_data.i += 1
+        except:
+            break
+        data.append(row)
+        if get_data.i % 100 == 0:
+            print_header(scr, "     Processing log...  Read %10d lines" % get_data.i)
+    return data
+get_data.i = 0
+
+def draw_start_screen(scr, data):
+    (height, width) = scr.getmaxyx()
+    headers = data[0].keys()
+    hlen = len(''.join(headers))
+    if width > hlen:
+        spaces = len(headers)-1
+        space = width/spaces
+    else:
+        space = 1
+    fmt = ""
+    for h in headers:
+        fmt += "%%%ds " % space
+    scr.addstr(1, 0, fmt % tuple(headers), curses.A_STANDOUT)
+    for row in xrange(2, height):
+        rdata = []
+        for h in headers:
+            rdata.append(data[row-2][h][:space-2])
+        try:
+            scr.addnstr(row, 0, fmt % tuple(rdata), width)
+        except curses.error:
+            pass
+    scr.refresh()
+
+def main_loop(scr):
+    while 1:
+        c = scr.getch()
+        if c == ord('q'): break
+
+def check_running(procs):
+    for p in procs:
+        p.join(1)
+        if p.exitcode is None:
+            return True
+
+def main():
+    cmd = argparse.ArgumentParser(description="Grok/Query/Aggregate log files", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    typ = cmd.add_mutually_exclusive_group(required=True)
+    typ.add_argument('-t', '--type', metavar='TYPE', choices=TYPES, help='{%s} Use built-in log type'%', '.join(TYPES), default='apache-common')
+    typ.add_argument('-f', '--format', action='store', help='Log format (use apache LogFormat string)')
+    cmd.add_argument('-j', '--processes', action='store', type=int, help='Number of processes to fork for log crunching', default=int(cpu_count()*1.5))
+    cmd.add_argument('logfile', nargs='+', type=argparse.FileType('r'))
+    args = cmd.parse_args(sys.argv[1:])
+
+    curses.wrapper(interactive, args)
 
 if __name__ == '__main__':
     main()
