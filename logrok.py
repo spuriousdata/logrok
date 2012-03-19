@@ -127,6 +127,143 @@ FORMAT = {
     'O': (Regex.number, "bytes_sent"),
 }
 
+class ChunkableList(list):
+    def chunks(self, size):
+        for i in xrange(0, len(self), size):
+            yield self[i:i+size]
+
+class ColSizes(object):
+    sizes = {}
+    @classmethod
+    def add(cls, key, value):
+        if cls.sizes.get(key, None) is None:
+            cls.sizes[key] = len(key)
+        if len(value) > cls.sizes.get(key):
+            cls.sizes[key] = len(value)
+
+    @classmethod
+    def get(cls, key):
+        return cls.sizes[key]
+
+class LoGrok(object):
+    def __init__(self, screen, args):
+        self.screen = screen
+        self.args = args
+        self.processed_rows = 0
+        self.data = []
+        self.setup()
+        self.crunchlogs()
+        self.interactive()
+
+    def setup(self):
+        (self.height, self.width) = self.screen.getmaxyx()
+        self.fullwidth = "%%-%ds" % self.width
+
+    def crunchlogs(self):
+        if self.args.format is not None:
+            logformat = self.args.format
+        else:
+            logformat = TYPES[self.args.type]
+
+        regex = parse_format_string(logformat)
+        func = rx_closure(regex)
+        self.task_queue = Queue()
+        self.result_queue = Queue()
+        self.processes = []
+
+        lines = ChunkableList()
+        for logfile in self.args.logfile:
+            self.print_header("   Reading %s" % logfile.name)
+            lines += logfile.readlines()
+            logfile.close()
+
+        for i in xrange(0, self.args.processes):
+            p = Process(target=func, args=(self.task_queue, self.result_queue))
+            p.daemon = True
+            p.start()
+            self.processes.append(p)
+
+        for line in lines.chunks(10000):
+            self.task_queue.put(line)
+            break
+
+        for i in range(0, self.args.processes):
+            self.task_queue.put('STOP')
+
+    def print_header(self, s):
+        self.screen.addstr(1, 0, self.fullwidth % s, curses.A_STANDOUT)
+        self.screen.refresh()
+        
+    def interactive(self):
+        data = []
+        while True:
+            if self.check_running():
+                self.get_data()
+            else:
+                break
+        self.get_data()
+        self.draw_start_screen()
+        self.main_loop()
+    
+    def draw_start_screen(self):
+        headers = self.data[0].keys()
+        fmt = "|| "
+        w = {}
+        for h in headers:
+            w[h] = ColSizes.get(h) if ColSizes.get(h) <= 20 else 20
+            fmt += "%%-%ds || " % w[h]
+
+        self.print_header(fmt % tuple(headers))
+
+        for row in xrange(2, self.height):
+            rdata = []
+            for h in headers:
+                rdata.append(self.data[row-2][h][:w[h]])
+            try:
+                self.screen.addnstr(row, 0, fmt % tuple(rdata), self.width)
+            except curses.error:
+                pass
+        self.screen.refresh()
+
+    def get_data(self):
+        while True:
+            try:
+                row = self.result_queue.get(True, 1)
+            except:
+                break
+            self.processed_rows += 1
+            self.data.append(row)
+            [ColSizes.add(k,v) for k,v in row.items()]
+            if self.processed_rows % 100 == 0:
+                self.print_header("     Processing log...  Read %10d lines" % self.processed_rows)
+
+    def check_running(self):
+        for p in self.processes:
+            p.join(1)
+            if p.exitcode is None:
+                return True
+
+    def get_query(self):
+        self.screen.addstr(self.height-4, 0, self.fullwidth % "QUERY:", curses.A_STANDOUT)
+        self.screen.move(self.height-3, 0)
+        self.screen.clrtobot()
+        self.screen.refresh()
+        curses.echo()
+        curses.nocbreak()
+        query = ""
+        while True:
+            c = self.screen.getch()
+            if c == ord('\n'): break
+            query += chr(c)
+        curses.noecho()
+        curses.cbreak()
+
+    def main_loop(self):
+        while 1:
+            c = self.screen.getch()
+            if c == ord('x'): break
+            if c == ord('q'): self.get_query()
+
 def parse_format_string(fmt):
     """ simple LALR scanner/parser for format string """
     output = r'^'
@@ -199,111 +336,14 @@ def parse_format_string(fmt):
 def rx_closure(rx):
     def dorx(iq, oq):
         r = re.compile(rx)
-        for line in iter(iq.get, 'STOP'):
-            out = {}
-            m = r.match(line)
-            for key in r.groupindex:
-                out[key] = m.group(key)
-            oq.put(out)
+        for lines in iter(iq.get, 'STOP'):
+            for line in lines:
+                out = {}
+                m = r.match(line)
+                for key in r.groupindex:
+                    out[key] = m.group(key)
+                oq.put(out)
     return dorx
-
-def crunchlogs(scr, args):
-    if args.format is not None:
-        logformat = args.format
-    else:
-        logformat = TYPES[args.type]
-
-    regex = parse_format_string(logformat)
-    func = rx_closure(regex)
-    task_queue = Queue()
-    result_queue = Queue()
-    processes = []
-
-    lines = []
-    for logfile in args.logfile:
-        print_header(scr, "   Reading %s" % logfile.name)
-        lines += logfile.readlines()
-        logfile.close()
-
-    for i in xrange(0, args.processes):
-        p = Process(target=func, args=(task_queue, result_queue))
-        p.start()
-        processes.append(p)
-
-    for line in lines[:1000]:
-        task_queue.put(line)
-
-    for i in range(0, args.processes):
-        task_queue.put('STOP')
-    
-    return processes, result_queue
-
-def print_header(scr, s):
-    (height, width) = scr.getmaxyx()
-    fullwidth = "%%-%ds" % width
-    scr.addstr(1, 0, fullwidth % s, curses.A_STANDOUT)
-    scr.refresh()
-
-def interactive(scr, args):
-    (height, width) = scr.getmaxyx()
-    procs, result = crunchlogs(scr, args)
-    data = []
-    while True:
-        if check_running(procs):
-            data += get_data(scr, result)
-        else:
-            break
-    data += get_data(scr, result)
-    draw_start_screen(scr, data)
-    main_loop(scr)
-
-def get_data(scr, queue):
-    data = []
-    while True:
-        try:
-            row = queue.get(True, 1)
-            get_data.i += 1
-        except:
-            break
-        data.append(row)
-        if get_data.i % 100 == 0:
-            print_header(scr, "     Processing log...  Read %10d lines" % get_data.i)
-    return data
-get_data.i = 0
-
-def draw_start_screen(scr, data):
-    (height, width) = scr.getmaxyx()
-    headers = data[0].keys()
-    hlen = len(''.join(headers))
-    if width > hlen:
-        spaces = len(headers)-1
-        space = width/spaces
-    else:
-        space = 1
-    fmt = ""
-    for h in headers:
-        fmt += "%%%ds " % space
-    scr.addstr(1, 0, fmt % tuple(headers), curses.A_STANDOUT)
-    for row in xrange(2, height):
-        rdata = []
-        for h in headers:
-            rdata.append(data[row-2][h][:space-2])
-        try:
-            scr.addnstr(row, 0, fmt % tuple(rdata), width)
-        except curses.error:
-            pass
-    scr.refresh()
-
-def main_loop(scr):
-    while 1:
-        c = scr.getch()
-        if c == ord('q'): break
-
-def check_running(procs):
-    for p in procs:
-        p.join(1)
-        if p.exitcode is None:
-            return True
 
 def main():
     cmd = argparse.ArgumentParser(description="Grok/Query/Aggregate log files", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -314,7 +354,7 @@ def main():
     cmd.add_argument('logfile', nargs='+', type=argparse.FileType('r'))
     args = cmd.parse_args(sys.argv[1:])
 
-    curses.wrapper(interactive, args)
+    curses.wrapper(LoGrok, args)
 
 if __name__ == '__main__':
     main()
