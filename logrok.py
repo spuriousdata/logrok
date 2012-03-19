@@ -19,31 +19,24 @@ TYPES = {
 
 class Regex(object):
     @staticmethod
-    def host(name='', nocapture=False):
-        if name is not '':
-            name = r'?P<%s>' % name
-        rx = r'[a-zA-Z0-9\-\.]+'
+    def r(rx, name, nocapture):
         if nocapture:
             return rx
+        if name is not '':
+            name = r'?P<%s>' % name
         return r'(%s%s)' % (name, rx)
+
+    @staticmethod
+    def host(name='', nocapture=False):
+        return Regex.r(r'[a-zA-Z0-9\-\.]+', name, nocapture)
 
     @staticmethod
     def number(name='', nocapture=False):
-        if name is not '':
-            name = r'?P<%s>' % name
-        rx = r'\d+'
-        if nocapture:
-            return rx
-        return r'(%s%s)' % (name, rx)
+        return Regex.r(r'\d+', name, nocapture)
 
     @staticmethod
     def string(name='', nocapture=False):
-        if name is not '':
-            name = r'?P<%s>' % name
-        rx = r'[^\s]+'
-        if nocapture:
-            return rx
-        return r'(%s%s)' % (name, rx)
+        return Regex.r(r'[^\s]+', name, nocapture)
 
     @staticmethod
     def commontime(name='', nocapture=False):
@@ -55,29 +48,14 @@ class Regex(object):
 
     @staticmethod
     def nil(name='', nocapture=False):
-        if name is not '':
-            name = r'?P<%s>' % name
-        rx = r'-'
-        if nocapture:
-            return rx
-        return r'(%s%s)' % (name, rx)
+        return Regex.r(r'-', name, nocapture)
 
     @staticmethod
     def cstatus(name='', nocapture=False):
-        if name is not '':
-            name = r'?P<%s>' % name
-        rx = r'X|\+|\-'
-        if nocapture:
-            return rx
-        return r'(%s%s)' % (name, rx)
+        return Regex.r(r'X|\+|\-', name, nocapture)
 
     def any(name='', nocapture=False):
-        if name is not '':
-            name = r'?P<%s>' % name
-        rx = r'.*'
-        if nocapture:
-            return rx
-        return r'(%s%s)' % (name, rx)
+        return Regex.r(r'.*', name, nocapture)
 
     @staticmethod
     def _or(a, b, name=''):
