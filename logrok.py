@@ -155,6 +155,8 @@ class LoGrok(object):
             lines += logfile.readlines()
             logfile.close()
 
+        self.loglen = len(lines)
+
         for i in xrange(0, self.args.processes):
             p = Process(target=func, args=(self.task_queue, self.result_queue))
             p.daemon = True
@@ -163,7 +165,6 @@ class LoGrok(object):
 
         for line in lines.chunks(10000):
             self.task_queue.put(line)
-            break
 
         for i in range(0, self.args.processes):
             self.task_queue.put('STOP')
@@ -204,6 +205,7 @@ class LoGrok(object):
         self.screen.refresh()
 
     def get_data(self):
+        oldpct = 0
         while True:
             try:
                 row = self.result_queue.get(True, 1)
@@ -212,8 +214,10 @@ class LoGrok(object):
             self.processed_rows += 1
             self.data.append(row)
             [ColSizes.add(k,v) for k,v in row.items()]
-            if self.processed_rows % 100 == 0:
-                self.print_header("     Processing log...  Read %10d lines" % self.processed_rows)
+            pct = int((self.processed_rows/self.loglen) * 100)
+            if pct != oldpct:
+                oldpct = pct
+                self.print_header("     Processing log... %10d%%" % pct)
 
     def check_running(self):
         for p in self.processes:
