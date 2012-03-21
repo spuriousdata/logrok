@@ -4,6 +4,11 @@ import argparse
 import sys
 import re
 import curses
+import fcntl
+import termios
+import struct
+import signal
+import math
 
 from functools import partial
 from multiprocessing import Process, cpu_count, Queue
@@ -123,19 +128,75 @@ class ColSizes(object):
     def get(cls, key):
         return cls.sizes[key]
 
+class LogQuery(object):
+    def __init__(self, data, query):
+        self.data = data
+        self.select(query)
+
+    def select(self, query):
+        self.what = []
+        if query.startswith('select'):
+            # skip select
+            query = query[query.find(' '):]
+
+        while True:
+            (tok, delim, query) = self.qtok(',', query)
+            spc = tok.find(' ')
+            nxt = ''
+            if spc != -1:
+                import pdb; pdb.set_trace()
+                t= tok[:spc]
+                nxt = tok[spc+1:]
+                tok = t
+                query = nxt + ' ' + query # unget token
+                break
+            if tok not in self.data[0].keys():
+                raise SyntaxError("ERROR: %s is not a valid field!\nChoices are %s" % (tok, ','.join(self.data[0].keys())))
+            self.what.append(tok)
+        if query.startswith('from '):
+            query = query[len('from '):]
+            query = query[query.find(' ')+1:]
+
+    def qtok(self, delim, s):
+        s.strip()
+        ret = s.partition(delim)
+        return tuple([x.strip() for x in ret])
+
+    def run(self):
+        pass
+
 class LoGrok(object):
-    def __init__(self, screen, args):
-        self.screen = screen
+    width = 0
+    height = 0
+    fullwidth = ""
+    curses = False
+    def __init__(self, screen, args, interactive=False, chunksize=10000):
+        if screen:
+            LoGrok.curses = True
+            self.screen = screen
+        self.interactive = interactive
         self.args = args
         self.processed_rows = 0
+        self.oldpct = 0
         self.data = []
-        self.setup()
+        self.chunksize = chunksize
+        LoGrok.setup_screen()
         self.crunchlogs()
-        self.interactive()
+        self.interact()
 
-    def setup(self):
-        (self.height, self.width) = self.screen.getmaxyx()
-        self.fullwidth = "%%-%ds" % self.width
+    @staticmethod
+    def setup_screen():
+        if LoGrok.curses:
+            (LoGrok.height, LoGrok.width) = self.screen.getmaxyx()
+        else:
+            s = struct.pack("HHHH", 0, 0, 0, 0)
+            (LoGrok.height, LoGrok.width, h, w) = struct.unpack("HHHH", fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, s))
+            signal.signal(signal.SIGWINCH, LoGrok.sigwinch)
+        LoGrok.fullwidth = "%%-%ds" % LoGrok.width
+
+    @staticmethod
+    def sigwinch(sig, frame):
+        LoGrok.setup_screen()
 
     def crunchlogs(self):
         if self.args.format is not None:
@@ -151,29 +212,51 @@ class LoGrok(object):
 
         lines = ChunkableList()
         for logfile in self.args.logfile:
-            self.print_header("   Reading %s" % logfile.name)
+            self.print_header("   Reading lines from %s:" % logfile.name)
             lines += logfile.readlines()
+            self.print_header("   Reading lines from %s: %d" % (logfile.name, len(lines)))
             logfile.close()
+
+        self.end_header()
+
+        if self.args.lines != None:
+            lines = ChunkableList(lines[:self.args.lines])
 
         self.loglen = len(lines)
 
-        for i in xrange(0, self.args.processes):
+        numprocs = min(self.args.processes, int(math.ceil(float(self.loglen)/self.chunksize)))
+
+        for i in xrange(0, numprocs+1):
             p = Process(target=func, args=(self.task_queue, self.result_queue))
             p.daemon = True
+            self.print_header("   Starting worker threads: %d" % i)
             p.start()
             self.processes.append(p)
+        self.end_header()
 
-        for line in lines.chunks(10000):
-            self.task_queue.put(line)
+        _chunks = 0
+        for chunk in lines.chunks(self.chunksize):
+            _chunks += len(chunk)
+            self.print_header("   Handing off chunks to worker: %d" % _chunks )
+            self.task_queue.put(chunk)
+        self.end_header()
 
-        for i in range(0, self.args.processes):
+        for p in self.processes:
             self.task_queue.put('STOP')
 
     def print_header(self, s):
-        self.screen.addstr(1, 0, self.fullwidth % s, curses.A_STANDOUT)
-        self.screen.refresh()
+        if LoGrok.curses:
+            self.screen.addstr(1, 0, LoGrok.fullwidth % s, curses.A_STANDOUT)
+            self.screen.refresh()
+        else:
+            sys.stdout.write("\r%s" % (LoGrok.fullwidth % s))
+            sys.stdout.flush()
         
-    def interactive(self):
+    def end_header(self):
+        sys.stdout.write("\r \r\n")
+        sys.stdout.flush()
+
+    def interact(self):
         data = []
         while True:
             if self.check_running():
@@ -181,8 +264,40 @@ class LoGrok(object):
             else:
                 break
         self.get_data()
-        self.draw_start_screen()
-        self.main_loop()
+        if LoGrok.curses:
+            self.draw_start_screen()
+            self.main_loop()
+            return
+        if self.interactive:
+            self.shell()
+            return
+        self.query(self.args.query)
+
+    def shell(self):
+        print self.query('help')
+        while True:
+            q = raw_input("logrok> ").strip()
+            while not q.endswith(";"):
+                q += raw_input("> ").strip()
+            print self.query(q[:-1])
+
+    def query(self, query):
+        query = query.lower()
+        if query in ('quit', 'bye', 'exit'):
+            sys.exit(0)
+        if query == 'help':
+            answer = "Use sql syntax against your log, `from` clauses are ignored.\n"\
+                    "Queries can span multiple lines and _must_ end in a semicolon `;`.\n"\
+                    " Try: `show fields;` to see available field names."
+            return answer
+        if query in ('show fields', 'show headers'):
+            return ', '.join(self.data[0].keys())
+        else:
+            try:
+                q = LogQuery(self.data, query)
+                return q.run()
+            except SyntaxError, e:
+                return e.message
     
     def draw_start_screen(self):
         headers = self.data[0].keys()
@@ -205,19 +320,18 @@ class LoGrok(object):
         self.screen.refresh()
 
     def get_data(self):
-        oldpct = 0
         while True:
             try:
-                row = self.result_queue.get(True, 1)
+                chunk = self.result_queue.get(True, 1)
             except:
                 break
             self.processed_rows += 1
-            self.data.append(row)
-            [ColSizes.add(k,v) for k,v in row.items()]
-            pct = int((self.processed_rows/self.loglen) * 100)
-            if pct != oldpct:
-                oldpct = pct
-                self.print_header("     Processing log... %10d%%" % pct)
+            self.data.append(chunk)
+            [ColSizes.add(k,v) for k,v in chunk.items()]
+            pct = int((float(self.processed_rows)/self.loglen) * 100)
+            if pct != self.oldpct:
+                self.oldpct = pct
+                self.print_header("   Processing log... %d%%" % pct)
 
     def check_running(self):
         for p in self.processes:
@@ -226,7 +340,7 @@ class LoGrok(object):
                 return True
 
     def get_query(self):
-        self.screen.addstr(self.height-4, 0, self.fullwidth % "QUERY:", curses.A_STANDOUT)
+        self.screen.addstr(self.height-4, 0, LoGrok.fullwidth % "QUERY:", curses.A_STANDOUT)
         self.screen.move(self.height-3, 0)
         self.screen.clrtobot()
         self.screen.refresh()
@@ -237,7 +351,7 @@ class LoGrok(object):
             c = self.screen.getch()
             if c == ord('\n'): break
             query += chr(c)
-        self.run(query)
+        self.query(query)
         curses.noecho()
         curses.cbreak()
 
@@ -337,10 +451,21 @@ def main():
     typ.add_argument('-t', '--type', metavar='TYPE', choices=TYPES, help='{%s} Use built-in log type'%', '.join(TYPES), default='apache-common')
     typ.add_argument('-f', '--format', action='store', help='Log format (use apache LogFormat string)')
     cmd.add_argument('-j', '--processes', action='store', type=int, help='Number of processes to fork for log crunching', default=int(cpu_count()*1.5))
+    cmd.add_argument('-l', '--lines', action='store', type=int, help='Only process LINES lines of input')
+    interactive = cmd.add_mutually_exclusive_group(required=False)
+    interactive.add_argument('-i', '--interactive', action='store_true', help="Use line-based interactive interface")
+    interactive.add_argument('-c', '--curses', action='store_true', help="Use curses-based interactive interface (Currntly Disabled)")
+    cmd.add_argument('-q', '--query', help="The query to run")
     cmd.add_argument('logfile', nargs='+', type=argparse.FileType('r'))
     args = cmd.parse_args(sys.argv[1:])
 
-    curses.wrapper(LoGrok, args)
+    if args.interactive:
+        LoGrok(None, args, interactive=True)
+    elif args.curses:
+        curses.wrapper(LoGrok, args, curses=True)
+    else:
+        LoGrok(None, args)
+
 
 if __name__ == '__main__':
     main()
