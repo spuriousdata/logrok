@@ -145,6 +145,7 @@ class LogQuery(object):
             # skip select
             query = query[query.find(' '):]
 
+        brklater = False
         while True:
             (tok, delim, query) = self.qtok(',', query)
             spc = tok.find(' ')
@@ -154,9 +155,14 @@ class LogQuery(object):
                 nxt = tok[spc+1:]
                 tok = t
                 query = nxt + ' ' + query # unget token
+                brklater=True
+            if len(query) == 0:
+                brklater=True
             #if tok not in self.data[0].keys():
             #    raise SyntaxError("ERROR: %s is not a valid field!\nChoices are %s" % (tok, ','.join(self.data[0].keys())))
             self.what.append(tok)
+            if brklater:
+                break
         if query.startswith('from '):
             try:
                 query = query[len('from '):]
@@ -173,9 +179,9 @@ class LogQuery(object):
         vals = ChunkableList([v for row in self.data for v in row[column]])
         tasklist = []
         # map
-        for chunk in vals.chunk(1000):
+        for chunk in vals.chunks(1000):
             tasklist.append(chunk)
-        data = self.parent.parallel(self._avg_mapper, tasklist)
+        data = self.parent.parallel(self._avg_mapper, tasklist, len(vals), numprocs=1, wait=True)
         # reduce
         avg = sum([d[0] for d in data], 0.0) / sum([d[1] for d in data])
         return avg
@@ -183,8 +189,8 @@ class LogQuery(object):
     def _avg_mapper(self, inq, outq):
         for lines in iter(inq.get, 'STOP'):
             numlines = len(lines)
-            total = sum([line for line in lines])
-            return (total, numlines)
+            total = sum([int(line) for line in lines])
+            outq.put((total, numlines))
 
     def run(self):
         response = {}
@@ -200,8 +206,9 @@ class LogQuery(object):
                     f = getattr(self, func)
                 except AttributeError:
                     raise SyntaxError("ERROR: function %s does not exist" % func)
-                response[item] = self.f(param)
-        self.print_response(response)
+                response[item] = f(param)
+        print response
+        #self.print_response(response)
 
     def print_response(self, r):
         tablewidth = max([len(x)for row in r for x in row.keys() ] + [len(x) for row in r for x in row.values()])
@@ -305,16 +312,15 @@ class LoGrok(object):
         for chunk in lines.chunks(self.chunksize):
             tasks.append(chunk)
 
-        self.data = self.parallel(func, tasks, wait=True)
+        self.data = self.parallel(func, tasks, len(lines), wait=True)
 
-    def parallel(self, func, tasks, numprocs=None, wait=False):
+    def parallel(self, func, tasks, tasklen, numprocs=None, wait=False):
         if numprocs == None:
             numprocs = min(self.args.processes, len(tasks))
 
         del self.processes[:]
         self.processed_rows = 0
-        self.print_header("   Starting worker threads: %d" % numprocs)
-        self.end_header()
+        self.print_header("   Starting workers: %d" % numprocs, True)
         for proc in xrange(0, numprocs+1):
             p = Process(target=func, args=(self.task_queue, self.result_queue))
             p.start()
@@ -324,21 +330,26 @@ class LoGrok(object):
         for p in self.processes:
             self.task_queue.put('STOP')
         if wait:
+            data = []
             while True:
                 if self.check_running():
-                    self.get_data(len(tasks))
+                    data += self.get_data(tasklen)
                 else:
                     break
-            return self.get_data(len(tasks))
+            data += self.get_data(tasklen)
+            return data
+        return None
 
 
-    def print_header(self, s):
+    def print_header(self, s, end=False):
         if LoGrok.curses:
             self.screen.addstr(1, 0, LoGrok.fullwidth % s, curses.A_STANDOUT)
             self.screen.refresh()
         else:
             sys.stdout.write("\r%s" % (LoGrok.fullwidth % s))
             sys.stdout.flush()
+            if end:
+                self.end_header()
         
     def end_header(self):
         sys.stdout.write("\r \r\n")
@@ -420,7 +431,6 @@ class LoGrok(object):
                 break
             self.processed_rows += 1
             data.append(chunk)
-            [ColSizes.add(k,v) for k,v in chunk.items()]
             pct = int((float(self.processed_rows)/datalen) * 100)
             if pct != self.oldpct:
                 self.oldpct = pct
