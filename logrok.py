@@ -2,8 +2,12 @@
 
 import argparse
 import sys
+import os
 import re
 import curses
+import code
+import readline
+import atexit
 import fcntl
 import termios
 import struct
@@ -129,10 +133,12 @@ class ColSizes(object):
         return cls.sizes[key]
 
 class LogQuery(object):
-    def __init__(self, data, query):
+    def __init__(self, parent, data, query):
+        self.parent = parent
         self.data = data
+        self.query = query
         self.select(query)
-
+    
     def select(self, query):
         self.what = []
         if query.startswith('select'):
@@ -144,26 +150,98 @@ class LogQuery(object):
             spc = tok.find(' ')
             nxt = ''
             if spc != -1:
-                import pdb; pdb.set_trace()
                 t= tok[:spc]
                 nxt = tok[spc+1:]
                 tok = t
                 query = nxt + ' ' + query # unget token
-                break
-            if tok not in self.data[0].keys():
-                raise SyntaxError("ERROR: %s is not a valid field!\nChoices are %s" % (tok, ','.join(self.data[0].keys())))
+            #if tok not in self.data[0].keys():
+            #    raise SyntaxError("ERROR: %s is not a valid field!\nChoices are %s" % (tok, ','.join(self.data[0].keys())))
             self.what.append(tok)
         if query.startswith('from '):
-            query = query[len('from '):]
-            query = query[query.find(' ')+1:]
+            try:
+                query = query[len('from '):]
+                query = query[query.find(' ')+1:]
+            except IndexError:
+                pass
 
     def qtok(self, delim, s):
         s.strip()
         ret = s.partition(delim)
         return tuple([x.strip() for x in ret])
 
+    def avg(self, column):
+        vals = ChunkableList([v for row in self.data for v in row[column]])
+        tasklist = []
+        # map
+        for chunk in vals.chunk(1000):
+            tasklist.append(chunk)
+        data = self.parent.parallel(self._avg_mapper, tasklist)
+        # reduce
+        avg = sum([d[0] for d in data], 0.0) / sum([d[1] for d in data])
+        return avg
+
+    def _avg_mapper(self, inq, outq):
+        for lines in iter(inq.get, 'STOP'):
+            numlines = len(lines)
+            total = sum([line for line in lines])
+            return (total, numlines)
+
     def run(self):
-        pass
+        response = {}
+        for item in self.what:
+            lparen = item.find('(')
+            if lparen != -1:
+                rparen = item.find(')')
+                if rparen == -1:
+                    raise SyntaxError("Error at %s" % tok)
+                func = item[:lparen]
+                param = item[lparen+1:rparen]
+                try:
+                    f = getattr(self, func)
+                except AttributeError:
+                    raise SyntaxError("ERROR: function %s does not exist" % func)
+                response[item] = self.f(param)
+        self.print_response(response)
+
+    def print_response(self, r):
+        tablewidth = max([len(x)for row in r for x in row.keys() ] + [len(x) for row in r for x in row.values()])
+        print '+' + ('-'*(tablewidth+r[0].keys())-2) + '+'
+        headers = r.keys()
+        columns = []
+        fmt = "|"
+        for h in headers:
+            columns.append(h)
+            fmt += "%%%ds|" % max([len(x[h]) for x in r])
+        for row in r:
+            print fmt % tuple([row[h] for h in columns]) 
+        print '+' + ('-'*(tablewidth+r[0].keys())-2) + '+'
+
+
+
+class Complete(object):
+    def __init__(self, opts=[]):
+        self.options = opts
+
+    def addopts(self, opts=[]):
+        self.options = sorted(self.options + opts)
+
+    def complete(self, text, state):
+        """
+        print ""
+        print "line buffer: %s" % readline.get_line_buffer()
+        print "completion type %s:" % readline.get_completion_type()
+        print "start = %d" % readline.get_begidx()
+        print "end = %d" % readline.get_endidx()
+        """
+        if state == 0:
+            if text:
+                self.matches = [s for s in self.options if s and s.startswith(text)]
+            else:
+                self.matches = self.options[:]
+        try:
+            return self.matches[state]
+        except IndexError:
+            return None
 
 class LoGrok(object):
     width = 0
@@ -180,6 +258,7 @@ class LoGrok(object):
         self.oldpct = 0
         self.data = []
         self.chunksize = chunksize
+        self.complete = Complete()
         LoGrok.setup_screen()
         self.crunchlogs()
         self.interact()
@@ -222,27 +301,36 @@ class LoGrok(object):
         if self.args.lines != None:
             lines = ChunkableList(lines[:self.args.lines])
 
-        self.loglen = len(lines)
+        tasks = []
+        for chunk in lines.chunks(self.chunksize):
+            tasks.append(chunk)
 
-        numprocs = min(self.args.processes, int(math.ceil(float(self.loglen)/self.chunksize)))
+        self.data = self.parallel(func, tasks, wait=True)
 
-        for i in xrange(0, numprocs+1):
+    def parallel(self, func, tasks, numprocs=None, wait=False):
+        if numprocs == None:
+            numprocs = min(self.args.processes, len(tasks))
+
+        del self.processes[:]
+        self.processed_rows = 0
+        self.print_header("   Starting worker threads: %d" % numprocs)
+        self.end_header()
+        for proc in xrange(0, numprocs+1):
             p = Process(target=func, args=(self.task_queue, self.result_queue))
-            p.daemon = True
-            self.print_header("   Starting worker threads: %d" % i)
             p.start()
             self.processes.append(p)
-        self.end_header()
-
-        _chunks = 0
-        for chunk in lines.chunks(self.chunksize):
-            _chunks += len(chunk)
-            self.print_header("   Handing off chunks to worker: %d" % _chunks )
-            self.task_queue.put(chunk)
-        self.end_header()
-
+        for job in tasks:
+            self.task_queue.put(job)
         for p in self.processes:
             self.task_queue.put('STOP')
+        if wait:
+            while True:
+                if self.check_running():
+                    self.get_data(len(tasks))
+                else:
+                    break
+            return self.get_data(len(tasks))
+
 
     def print_header(self, s):
         if LoGrok.curses:
@@ -257,13 +345,6 @@ class LoGrok(object):
         sys.stdout.flush()
 
     def interact(self):
-        data = []
-        while True:
-            if self.check_running():
-                self.get_data()
-            else:
-                break
-        self.get_data()
         if LoGrok.curses:
             self.draw_start_screen()
             self.main_loop()
@@ -274,7 +355,16 @@ class LoGrok(object):
         self.query(self.args.query)
 
     def shell(self):
-        print self.query('help')
+        try:
+            history = os.path.expanduser('~/.logrok_history')
+            readline.read_history_file(history)
+        except IOError:
+            pass
+        atexit.register(readline.write_history_file, history)
+        readline.set_history_length(1000)
+        readline.parse_and_bind('tab: complete')
+        readline.set_completer(self.complete.complete)
+        self.complete.addopts(['select', 'where', 'avg', 'max', 'min', 'count', 'between', ] + self.data[0].keys())
         while True:
             q = raw_input("logrok> ").strip()
             while not q.endswith(";"):
@@ -285,7 +375,7 @@ class LoGrok(object):
         query = query.lower()
         if query in ('quit', 'bye', 'exit'):
             sys.exit(0)
-        if query == 'help':
+        if query.startswith('help') or query.startswith('?'):
             answer = "Use sql syntax against your log, `from` clauses are ignored.\n"\
                     "Queries can span multiple lines and _must_ end in a semicolon `;`.\n"\
                     " Try: `show fields;` to see available field names."
@@ -294,7 +384,7 @@ class LoGrok(object):
             return ', '.join(self.data[0].keys())
         else:
             try:
-                q = LogQuery(self.data, query)
+                q = LogQuery(self, self.data, query)
                 return q.run()
             except SyntaxError, e:
                 return e.message
@@ -319,19 +409,23 @@ class LoGrok(object):
                 pass
         self.screen.refresh()
 
-    def get_data(self):
+    def get_data(self, datalen=None):
+        data = []
+        if datalen is None:
+            datalen = self.loglen
         while True:
             try:
                 chunk = self.result_queue.get(True, 1)
             except:
                 break
             self.processed_rows += 1
-            self.data.append(chunk)
+            data.append(chunk)
             [ColSizes.add(k,v) for k,v in chunk.items()]
-            pct = int((float(self.processed_rows)/self.loglen) * 100)
+            pct = int((float(self.processed_rows)/datalen) * 100)
             if pct != self.oldpct:
                 self.oldpct = pct
                 self.print_header("   Processing log... %d%%" % pct)
+        return data
 
     def check_running(self):
         for p in self.processes:
