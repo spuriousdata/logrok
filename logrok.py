@@ -13,9 +13,16 @@ import termios
 import struct
 import signal
 import math
+import itertools
 
 from functools import partial
 from multiprocessing import Process, cpu_count, Queue
+
+try:
+    from collections import OrderedDict
+except ImportError:
+    # Won't maintain column order this way
+    class OrderedDict(dict): pass
 
 TYPES = {
     'apache-common': "%h %l %u %t \"%r\" %>s %b",
@@ -168,7 +175,9 @@ class LogQuery(object):
                 query = query[len('from '):]
                 query = query[query.find(' ')+1:]
             except IndexError:
-                pass
+                return
+        if query.startswith('where '):
+
 
     def qtok(self, delim, s):
         s.strip()
@@ -179,12 +188,12 @@ class LogQuery(object):
         vals = ChunkableList([v for row in self.data for v in row[column]])
         tasklist = []
         # map
-        for chunk in vals.chunks(1000):
+        for chunk in vals.chunks(self.parent.chunksize):
             tasklist.append(chunk)
-        data = self.parent.parallel(self._avg_mapper, tasklist, len(vals), numprocs=1, wait=True)
+        data = self.parent.parallel(self._avg_mapper, tasklist, len(vals), wait=True)
         # reduce
         avg = sum([d[0] for d in data], 0.0) / sum([d[1] for d in data])
-        return avg
+        return [avg]
 
     def _avg_mapper(self, inq, outq):
         for lines in iter(inq.get, 'STOP'):
@@ -193,7 +202,7 @@ class LogQuery(object):
             outq.put((total, numlines))
 
     def run(self):
-        response = {}
+        response = OrderedDict()
         for item in self.what:
             lparen = item.find('(')
             if lparen != -1:
@@ -207,23 +216,9 @@ class LogQuery(object):
                 except AttributeError:
                     raise SyntaxError("ERROR: function %s does not exist" % func)
                 response[item] = f(param)
-        print response
-        #self.print_response(response)
-
-    def print_response(self, r):
-        tablewidth = max([len(x)for row in r for x in row.keys() ] + [len(x) for row in r for x in row.values()])
-        print '+' + ('-'*(tablewidth+r[0].keys())-2) + '+'
-        headers = r.keys()
-        columns = []
-        fmt = "|"
-        for h in headers:
-            columns.append(h)
-            fmt += "%%%ds|" % max([len(x[h]) for x in r])
-        for row in r:
-            print fmt % tuple([row[h] for h in columns]) 
-        print '+' + ('-'*(tablewidth+r[0].keys())-2) + '+'
-
-
+            else:
+                response[item] = [row[item] for row in self.data]
+        Table(response).prnt()
 
 class Complete(object):
     def __init__(self, opts=[]):
@@ -249,6 +244,44 @@ class Complete(object):
             return self.matches[state]
         except IndexError:
             return None
+
+class Table(object):
+    def __init__(self, data):
+        if type(data) is not OrderedDict:
+            raise TypeError("Table(data): OrderedDict expected, found %s" % type(data))
+        self.data = data
+        self.size_columns()
+
+    def size_columns(self):
+        self.columnsize = {}
+        self.fmt = "|"
+        for k in self.data.keys():
+            size = max([len(str(x)) for x in self.data[k]+[k]])
+            self.fmt += "%%%ds|" % size
+            self.columnsize[k] = size
+
+    def print_bar(self):
+        keys = tuple(self.data.keys())
+        width = len(self.fmt % keys)-2
+        print "+%s+" % ('-'*width)
+
+    def translate(self):
+        """
+        Translate self.data from key:(row1, row2, row3), key2:(row1, row2, row3)
+        into (key, key2),(row1, row1), (row2, row2), (row3, row3)
+        """
+        return [tuple(self.data.keys())] + list(itertools.izip_longest(*self.data.values(), fillvalue='NULL'))
+
+    def prnt(self):
+        outdata = self.translate()
+        headers = outdata.pop(0)
+        self.print_bar()
+        print self.fmt % headers
+        self.print_bar()
+        for row in outdata:
+            print self.fmt % row
+        self.print_bar()
+
 
 class LoGrok(object):
     width = 0
@@ -380,7 +413,7 @@ class LoGrok(object):
             q = raw_input("logrok> ").strip()
             while not q.endswith(";"):
                 q += raw_input("> ").strip()
-            print self.query(q[:-1])
+            self.query(q[:-1])
 
     def query(self, query):
         query = query.lower()
@@ -550,7 +583,7 @@ def rx_closure(rx):
     return dorx
 
 def main():
-    cmd = argparse.ArgumentParser(description="Grok/Query/Aggregate log files", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    cmd = argparse.ArgumentParser(description="Grok/Query/Aggregate log files\nFor best results, use python > 2.7 (and < 3.0)", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     typ = cmd.add_mutually_exclusive_group(required=True)
     typ.add_argument('-t', '--type', metavar='TYPE', choices=TYPES, help='{%s} Use built-in log type'%', '.join(TYPES), default='apache-common')
     typ.add_argument('-f', '--format', action='store', help='Log format (use apache LogFormat string)')
