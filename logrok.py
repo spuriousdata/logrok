@@ -19,11 +19,12 @@ from functools import partial
 from multiprocessing import Process, cpu_count, Queue
 from ply import lex, yacc
 
-try:
-    from collections import OrderedDict
-except ImportError:
-    # Won't maintain column order this way
-    class OrderedDict(dict): pass
+if sys.version < '2.7':
+    print "%s requires python 2.x version 2.7 or higher" % sys.argv[0]
+    sys.exit(1)
+
+from collections import OrderedDict
+from collections import namedtuple
 
 DEBUG = False
 
@@ -124,22 +125,24 @@ FORMAT = {
     'O': (Regex.number, "bytes_sent"),
 }
 
-class Statement(object): pass
-class TableExpression(object): pass
+Statement   = namedtuple('Statement',   ['fields', 'frm', 'where', 'groupby', 'orderby', 'limit'])
+Function    = namedtuple('Function',    ['name', 'args'])
+Field       = namedtuple('Field',       ['name'])
+Where       = namedtuple('Where',       ['predicates']) 
+And         = namedtuple('And',         ['where']) 
+Or          = namedtuple('Or',          ['where']) 
+Boolean     = namedtuple('Boolean',     ['lval', 'operator', 'rval'])
+Between     = namedtuple('Between',     ['field', 'lval', 'rval'])
+From        = namedtuple('From',        ['table'])
+GroupBy     = namedtuple('GroupBy',     ['fields'])
+OrderBy     = namedtuple('OrderBy',     ['fields'])
+Limit       = namedtuple('Limit',       ['value'])
 
 def sqlerror(t):
-    def line_details(i, t):
-        """return line and column in which error occurred"""
-        last_nl = i.rfind('\n', 0, t.lexpos)
-        if last_nl < 0:
-            last_nl = 0
-        col = (t.lexpos - last_nl)
-        return (i[last_nl+1:i.find('\n', last_nl+1)], col)
-    (line, c) = line_details(t.lexer.lexdata, t)
-    print "Syntax Error '%s' at line %d char %d" % (t.value[0], t.lineno, c)
-    print ("\t" + line.replace('\t', ' ')) # Tabs are expanded to spaces when they're printed to the terminal
+    print "Syntax Error '%s' at position %d" % (t.value, t.lexpos)
+    print ("\t" + t.lexer.lexdata.replace('\t', ' ')) # Tabs are expanded to spaces when they're printed to the terminal
     carrotline = "\t"
-    for i in xrange(1, c+1):
+    for i in xrange(1, t.lexpos+1):
         carrotline += "^"
     print carrotline
 
@@ -165,11 +168,11 @@ def SQLLexer():
         'STAR',
         'LPAREN',
         'RPAREN',
-        'QUOTE',
         'STRING',
         'IDENTIFIER',
         'COMMA',
         'OPERATOR',
+        'INTEGER',
     ] + keywords.values()
 
     t_ignore = ' '
@@ -177,9 +180,9 @@ def SQLLexer():
     t_STAR      = r'\*'
     t_LPAREN    = r'\('
     t_RPAREN    = r'\)'
-    t_QUOTE     = r'[\'\"]'
     t_COMMA     = r','
     t_OPERATOR  = r'=|<>|<|>'
+    t_INTEGER   = r'\d+'
 
     def t_IDENTIFIER(t):
         r'[\w][\w\.\-]+'
@@ -190,7 +193,7 @@ def SQLLexer():
         sqlerror(t)
 
     def t_STRING(t):
-        r'\"([^\\"]|(\\.))*\"'
+        r'(\"([^\\"]|(\\.))*\'|\'([^\\\']|(\\.))*\')'
         s = t.value[1:-1] # cut off quotes
         read_backslash = False
         output = ''
@@ -221,31 +224,22 @@ def SQLParser():
         sqlerror(p)
     
     def p_statement(p):
-        '''statement : select fields'''
-        stmt = Statement()
-        stmt.fields = p[2]
-        #stmt.table_expression = p[3]
-        p[0] = stmt
+        'statement : select fields from where group order limit'
+        p[0] = Statement(p[2], p[3], p[4], p[5], p[6], p[7])
     
     def p_select(p):
         '''select :
-                 | SELECT'''
+                  | SELECT'''
     
     def p_fields(p):
-        '''fields : field
-                  | field fieldlist'''
-        if len(p) == 2:
-            p[0] = [p[1]]
-        else:
-            if type(p[1]) == list:
-                p[0] = p[1] + p[2]
-            else: 
-                p[0] = [p[1]] + p[2]
+        'fields : field fieldlist'
+        p[0] = p[1] + p[2]
 
     def p_field(p):
-        '''field : IDENTIFIER
+        '''field : STAR
+                 | IDENTIFIER
                  | function'''
-        p[0] = [p[1]]
+        p[0] = [Field(p[1])]
 
     def p_fieldlist(p):
         '''fieldlist :
@@ -257,8 +251,8 @@ def SQLParser():
                 p[0] = p[2]
 
     def p_function(p):
-        '''function : fname LPAREN IDENTIFIER RPAREN'''
-        p[0] = (p[1], p[3])
+        'function : fname LPAREN IDENTIFIER RPAREN'
+        p[0] = Function(p[1], p[3])
 
     def p_fname(p):
         '''fname : F_AVG
@@ -267,15 +261,87 @@ def SQLParser():
                  | F_COUNT'''
         p[0] = p[1]
     
-    def p_tableexpr(p):
-        '''expr :
-        '''
+    def p_from(p):
+        '''from :
+                | FROM IDENTIFIER'''
+        return From(p[2])
+
+    def p_where(p):
+        '''where :
+                 | WHERE wherelist'''
+        if len(p) > 1:
+                p[0] = Where(p[2])
+
+    def p_wherelist(p):
+        '''wherelist : 
+                     | wherexpr
+                     | wherelist AND wherelist
+                     | wherelist OR wherelist'''
+        if len(p) == 4:
+            if p[2].lower() == 'and':
+                p[0] = And((p[1], p[3]))
+            else:
+                p[0] = Or((p[1], p[3]))
+        else:
+            if len(p) > 1:
+                #p[0] = p[1], p[2]
+                p[0] = p[1]
     
+    def p_wherexpr(p):
+        '''wherexpr : whereval OPERATOR whereval
+                    | whereval BETWEEN whereval AND whereval
+                    | wherexpr_grouped'''
+        if len(p) == 4:
+            p[0] = Boolean(p[1], p[2], p[3])
+        elif len(p) == 6:
+            p[0] = Between(p[1], p[3], p[5])
+        else:
+            p[0] = p[1]
+
+    def p_wherexpr_grouped(p):
+        'wherexpr_grouped : LPAREN wherelist RPAREN'
+        p[0] = (p[2],)
+
+    def p_whereval(p):
+        '''whereval : IDENTIFIER
+                    | INTEGER
+                    | STRING'''
+        p[0] = p[1]
+
+    def p_group(p):
+        '''group :
+                 | GROUP BY identlist'''
+        if len(p) > 1:
+            p[0] = GroupBy(p[3])
+
+    def p_order(p):
+        '''order :
+                 | ORDER BY identlist'''
+        if len(p) > 1:
+            p[0] = OrderBy(p[3])
+
+    def p_identlist(p):
+        '''identlist :
+                     | COMMA IDENTIFIER identlist'''
+        if len(p) > 1:
+            if p[3] != None:
+                p[0] = [p[2]] + p[3]
+            else:
+                p[0] = [p[2]]
+
+    def p_limit(p):
+        '''limit :
+                 | LIMIT IDENTIFIER'''
+        if len(p) > 1:
+            p[0] = Limit(p[2])
+
     return yacc.yacc(debug=DEBUG)
 
 
-tokens, sql_lexer = SQLLexer()
-sql_parser = SQLParser()
+def setup_parser():
+    global tokens, sql_lexer, sql_parser
+    tokens, sql_lexer = SQLLexer()
+    sql_parser = SQLParser()
 
 def parse_sql(sql):
     return sql_parser.parse(sql, lexer=sql_lexer, debug=DEBUG)
@@ -303,9 +369,23 @@ class LogQuery(object):
         self.parent = parent
         self.data = data
         self.query = query
-        x = parse_sql(query)
-        import pdb; pdb.set_trace()
-        self.select(x)
+        q = parse_sql(query)
+        sq = str(q)
+        oq = ""
+        indent = 0
+        for c in sq:
+            if c in ('(', '['):
+                indent += 1
+                oq += c + ('\n%s' % ('    '*indent))
+            elif c in (')', ']'):
+                indent -= 1
+                oq += ('\n%s' % ('    '*indent)) + c
+            elif c == ',':
+                oq += c + ('\n%s' % ('    '*indent))
+            else:
+                oq += c
+        print oq
+        print sq
     
     def select(self, query):
         self.what = []
@@ -362,6 +442,7 @@ class LogQuery(object):
             outq.put((total, numlines))
 
     def run(self):
+        return
         response = OrderedDict()
         for item in self.what:
             lparen = item.find('(')
@@ -756,8 +837,10 @@ def main():
     cmd.add_argument('-d', '--debug', action='store_true', help="Turn debugging on")
     cmd.add_argument('logfile', nargs='+', type=argparse.FileType('r'))
     args = cmd.parse_args(sys.argv[1:])
+
     global DEBUG
     DEBUG = args.debug
+    setup_parser()
 
     if args.interactive:
         LoGrok(None, args, interactive=True)
