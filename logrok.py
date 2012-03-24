@@ -128,23 +128,30 @@ FORMAT = {
 Statement   = namedtuple('Statement',   ['fields', 'frm', 'where', 'groupby', 'orderby', 'limit'])
 Function    = namedtuple('Function',    ['name', 'args'])
 Field       = namedtuple('Field',       ['name'])
-Where       = namedtuple('Where',       ['predicates']) 
-And         = namedtuple('And',         ['where']) 
-Or          = namedtuple('Or',          ['where']) 
+Where       = namedtuple('Where',       ['predicates'])
+And         = namedtuple('And',         ['lval', 'rval'])
+Or          = namedtuple('Or',          ['lval', 'rval'])
+In          = namedtuple('In',          ['field', 'inlist'])
 Boolean     = namedtuple('Boolean',     ['lval', 'operator', 'rval'])
 Between     = namedtuple('Between',     ['field', 'lval', 'rval'])
 From        = namedtuple('From',        ['table'])
 GroupBy     = namedtuple('GroupBy',     ['fields'])
-OrderBy     = namedtuple('OrderBy',     ['fields'])
+OrderBy     = namedtuple('OrderBy',     ['fields', 'direction'])
 Limit       = namedtuple('Limit',       ['value'])
 
+class NoTokenError(SyntaxError): pass
+
 def sqlerror(t):
+    if t is None:
+        raise NoTokenError("Unknown Error in query: ")
     print "Syntax Error '%s' at position %d" % (t.value, t.lexpos)
     print ("\t" + t.lexer.lexdata.replace('\t', ' ')) # Tabs are expanded to spaces when they're printed to the terminal
     carrotline = "\t"
     for i in xrange(1, t.lexpos+1):
-        carrotline += "^"
+        carrotline += " "
+    carrotline += '^'*len(t.value)
     print carrotline
+    raise SyntaxError()
 
 def SQLLexer():
     keywords = {
@@ -162,6 +169,9 @@ def SQLLexer():
         'limit':'LIMIT',
         'and':'AND',
         'or' : 'OR',
+        'in' : 'IN',
+        'asc': 'ASC',
+        'desc': 'DESC',
     }
 
     tokens = [
@@ -185,7 +195,7 @@ def SQLLexer():
     t_INTEGER   = r'\d+'
 
     def t_IDENTIFIER(t):
-        r'[\w][\w\.\-]+'
+        r'[\w][\w\.\-]*'
         t.type = keywords.get(t.value.lower(), 'IDENTIFIER')
         return t
 
@@ -264,7 +274,8 @@ def SQLParser():
     def p_from(p):
         '''from :
                 | FROM IDENTIFIER'''
-        return From(p[2])
+        if len(p) > 1:
+            return From(p[2])
 
     def p_where(p):
         '''where :
@@ -275,13 +286,13 @@ def SQLParser():
     def p_wherelist(p):
         '''wherelist : 
                      | wherexpr
-                     | wherelist AND wherelist
-                     | wherelist OR wherelist'''
+                     | wherexpr AND wherelist
+                     | wherexpr OR wherelist'''
         if len(p) == 4:
             if p[2].lower() == 'and':
-                p[0] = And((p[1], p[3]))
+                p[0] = And(p[1], p[3])
             else:
-                p[0] = Or((p[1], p[3]))
+                p[0] = Or(p[1], p[3])
         else:
             if len(p) > 1:
                 #p[0] = p[1], p[2]
@@ -289,14 +300,40 @@ def SQLParser():
     
     def p_wherexpr(p):
         '''wherexpr : whereval OPERATOR whereval
+                    | whereval IN inlist
                     | whereval BETWEEN whereval AND whereval
                     | wherexpr_grouped'''
         if len(p) == 4:
-            p[0] = Boolean(p[1], p[2], p[3])
+            if p[2].lower() == 'in':
+                p[0] = In(p[1], p[3])
+            else:
+                p[0] = Boolean(p[1], p[2], p[3])
         elif len(p) == 6:
             p[0] = Between(p[1], p[3], p[5])
         else:
             p[0] = p[1]
+
+    def p_inlist(p):
+        'inlist : LPAREN initem initemlist RPAREN'
+        if p[3] is not None:
+            p[0] = [p[2]] + p[3]
+        else:
+            p[0] = [p[2]]
+
+    def p_initemlist(p):
+        '''initemlist : 
+                      | COMMA initem initemlist'''
+        if len(p) > 1:
+            if p[3] != None:
+                p[0] = [p[2]] + p[3]
+            else:
+                p[0] = [p[2]]
+
+    def p_initem(p):
+        '''initem : STRING
+                  | INTEGER
+                  | IDENTIFIER'''
+        p[0] = p[1]
 
     def p_wherexpr_grouped(p):
         'wherexpr_grouped : LPAREN wherelist RPAREN'
@@ -310,15 +347,30 @@ def SQLParser():
 
     def p_group(p):
         '''group :
-                 | GROUP BY identlist'''
-        if len(p) > 1:
-            p[0] = GroupBy(p[3])
+                 | GROUP BY IDENTIFIER identlist'''
+        if p[4] is None:
+            p[0] = GroupBy([p[3]])
+        else:
+            p[0] = GroupBy([p[3]] + p[4])
 
     def p_order(p):
         '''order :
-                 | ORDER BY identlist'''
+                 | ORDER BY IDENTIFIER identlist direction'''
         if len(p) > 1:
-            p[0] = OrderBy(p[3])
+            if p[4] is not None:
+                fields = [p[3]] + p[4]
+            else:
+                fields = [p[3]]
+            p[0] = OrderBy(fields, p[5])
+
+    def p_direction(p):
+        '''direction :
+                     | ASC
+                     | DESC'''
+        try:
+            p[0] = p[1]
+        except IndexError:
+            p[0] = 'asc'
 
     def p_identlist(p):
         '''identlist :
@@ -369,7 +421,14 @@ class LogQuery(object):
         self.parent = parent
         self.data = data
         self.query = query
-        q = parse_sql(query)
+        try:
+            q = parse_sql(query)
+        except NoTokenError, e:
+            print "ERROR: %s" % e.message
+            print query
+            return
+        except SyntaxError:
+            return
         sq = str(q)
         oq = ""
         indent = 0
@@ -657,7 +716,6 @@ class LoGrok(object):
             self.query(q[:-1])
 
     def query(self, query):
-        query = query.lower()
         if query in ('quit', 'bye', 'exit'):
             sys.exit(0)
         if query.startswith('help') or query.startswith('?'):
