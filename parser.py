@@ -40,11 +40,16 @@ def p_select(p):
 
 def p_fields(p):
     'fields : field fieldlist'
-    p[0] = p[1] + p[2]
+    if p[2] is not None:
+        p[0] = p[1] + p[2]
+    else:
+        p[0] = p[1]
 
 def p_field(p):
     '''field : STAR
              | IDENTIFIER
+             | INTEGER
+             | STRING
              | function'''
     p[0] = [Field(p[1])]
 

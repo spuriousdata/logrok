@@ -41,7 +41,7 @@ t_STAR      = r'\*'
 t_LPAREN    = r'\('
 t_RPAREN    = r'\)'
 t_COMMA     = r','
-t_OPERATOR  = r'=|<>|<|>'
+t_OPERATOR  = r'=|<>|<|>|<=|>='
 t_INTEGER   = r'\d+'
 
 def t_IDENTIFIER(t):
