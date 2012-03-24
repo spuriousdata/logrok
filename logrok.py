@@ -12,412 +12,19 @@ import argparse
 import os
 import re
 import curses
-import code
 import readline
 import atexit
 import fcntl
 import termios
 import struct
 import signal
-import math
-import itertools
-
-from functools import partial
 from multiprocessing import Process, cpu_count, Queue
-from collections import OrderedDict
-from collections import namedtuple
 
-from ply import lex, yacc
+from ply import yacc
 
-DEBUG = False
-
-TYPES = {
-    'apache-common': "%h %l %u %t \"%r\" %>s %b",
-    'apache-common-vhost': "%v %h %l %u %t \"%r\" %>s %b",
-    'ncsa-combined': "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"",
-    'referer': "%{Referer}i -> %U",
-    'agent': "%{User-agent}i",
-    'syslog': "%{%b %d %H:%M:%S}t %h %v[%P]: %M",
-}
-
-class Regex(object):
-    @staticmethod
-    def r(rx, name, nocapture):
-        if nocapture:
-            return rx
-        if name is not '':
-            name = r'?P<%s>' % name
-        return r'(%s%s)' % (name, rx)
-
-    @staticmethod
-    def host(name='', nocapture=False):
-        return Regex.r(r'[a-zA-Z0-9\-\.]+', name, nocapture)
-
-    @staticmethod
-    def number(name='', nocapture=False):
-        return Regex.r(r'\d+', name, nocapture)
-
-    @staticmethod
-    def string(name='', nocapture=False):
-        return Regex.r(r'[^\s]+', name, nocapture)
-
-    @staticmethod
-    def commontime(name='', nocapture=False):
-        if name is not '':
-            name = r'?P<%s>' % name
-        if nocapture:
-            return r'\[[^\]]+]'
-        return r'\[(%s[^\]]+)]' % name
-
-    @staticmethod
-    def nil(name='', nocapture=False):
-        return Regex.r(r'-', name, nocapture)
-
-    @staticmethod
-    def cstatus(name='', nocapture=False):
-        return Regex.r(r'X|\+|\-', name, nocapture)
-
-    def any(name='', nocapture=False):
-        return Regex.r(r'.*', name, nocapture)
-
-    @staticmethod
-    def _or(a, b, name=''):
-        if name is not '':
-            name = r'?P<%s>' % name
-        return "("+name+a(nocapture=True)+"|"+b(nocapture=True)+")"
-
-    @staticmethod
-    def dstring(start, negmatch, end, name='', nocapture=False):
-        """ grab all not-negmatch chars, but allow for backslash-escaped negmatch """
-        if name is not '':
-            name = r'?P<%s>' % name
-        if nocapture:
-            return r'%s[^%s\\]*(?:\\.[^%s\\]*)*%s' % (start, negmatch, negmatch, end)
-        return r'%s(%s[^%s\\]*(?:\\.[^%s\\]*)*)%s' % (start, name, negmatch, negmatch, end)
-
-FORMAT = {
-    'a': (Regex.host, "remote_ip"),
-    'A': (Regex.host, "local_ip"),
-    'B': (Regex.number, "body_size"),
-    'b': (partial(Regex._or, Regex.number, Regex.nil), "body_size"),
-    'C': (Regex.string, "cookie"),
-    'D': (Regex.number, "response_time_ms"),
-    'e': (Regex.string, "environment_var"),
-    'f': (Regex.string, "filename"),
-    'h': (Regex.host, "remote_host"),
-    'H': (Regex.string, "protocol"),
-    'i': (Regex.string, "input_header"),
-    'l': (Regex.string, "logname"),
-    'm': (Regex.string, "method"),
-    'M': (Regex.any, "message"),
-    'n': (Regex.string, "note"),
-    'o': (Regex.string, "output_header"),
-    'p': (Regex.number, "port"),
-    'P': (Regex.number, "pid"),
-    'q': (Regex.string, "query_string"),
-    'r': (Regex.string, "request"),
-    's': (Regex.number, "status_code"),
-    't': (Regex.commontime, "date_time"),
-    'T': (Regex.number, "response_time_s_"),
-    'u': (Regex.string, "auth_user"),
-    'U': (Regex.string, "url"),
-    'v': (Regex.host, "server_name"),
-    'V': (Regex.host, "canonical_server_name"),
-    'X': (Regex.cstatus, "conn_status"),
-    'I': (Regex.number, "bytes_received"),
-    'O': (Regex.number, "bytes_sent"),
-}
-
-Statement   = namedtuple('Statement',   ['fields', 'frm', 'where', 'groupby', 'orderby', 'limit'])
-Function    = namedtuple('Function',    ['name', 'args'])
-Field       = namedtuple('Field',       ['name'])
-Where       = namedtuple('Where',       ['predicates'])
-And         = namedtuple('And',         ['lval', 'rval'])
-Or          = namedtuple('Or',          ['lval', 'rval'])
-In          = namedtuple('In',          ['field', 'inlist'])
-Boolean     = namedtuple('Boolean',     ['lval', 'operator', 'rval'])
-Between     = namedtuple('Between',     ['field', 'lval', 'rval'])
-From        = namedtuple('From',        ['table'])
-GroupBy     = namedtuple('GroupBy',     ['fields'])
-OrderBy     = namedtuple('OrderBy',     ['fields', 'direction'])
-Limit       = namedtuple('Limit',       ['value'])
-
-class NoTokenError(SyntaxError): pass
-
-def sqlerror(t):
-    if t is None:
-        raise NoTokenError("Unknown Error in query: ")
-    print "Syntax Error '%s' at position %d" % (t.value, t.lexpos)
-    print ("\t" + t.lexer.lexdata.replace('\t', ' ')) # Tabs are expanded to spaces when they're printed to the terminal
-    carrotline = "\t"
-    for i in xrange(1, t.lexpos+1):
-        carrotline += " "
-    carrotline += '^'*len(t.value)
-    print carrotline
-    raise SyntaxError()
-
-def SQLLexer():
-    keywords = {
-        'select':'SELECT',
-        'avg':'F_AVG',
-        'max':'F_MAX',
-        'min':'F_MIN',
-        'count':'F_COUNT',
-        'from':'FROM',
-        'where':'WHERE',
-        'between':'BETWEEN',
-        'group':'GROUP',
-        'order':'ORDER',
-        'by' : 'BY',
-        'limit':'LIMIT',
-        'and':'AND',
-        'or' : 'OR',
-        'in' : 'IN',
-        'asc': 'ASC',
-        'desc': 'DESC',
-    }
-
-    tokens = [
-        'STAR',
-        'LPAREN',
-        'RPAREN',
-        'STRING',
-        'IDENTIFIER',
-        'COMMA',
-        'OPERATOR',
-        'INTEGER',
-    ] + keywords.values()
-
-    t_ignore = ' '
-
-    t_STAR      = r'\*'
-    t_LPAREN    = r'\('
-    t_RPAREN    = r'\)'
-    t_COMMA     = r','
-    t_OPERATOR  = r'=|<>|<|>'
-    t_INTEGER   = r'\d+'
-
-    def t_IDENTIFIER(t):
-        r'[\w][\w\.\-]*'
-        t.type = keywords.get(t.value.lower(), 'IDENTIFIER')
-        return t
-
-    def t_error(t):
-        sqlerror(t)
-
-    def t_STRING(t):
-        r'(\"([^\\"]|(\\.))*\'|\'([^\\\']|(\\.))*\')'
-        s = t.value[1:-1] # cut off quotes
-        read_backslash = False
-        output = ''
-        for i in xrange(0, len(s)):
-            c = s[i]
-            if read_backslash:
-                if c == 'n':
-                    c = '\n'
-                elif c == 't':
-                    c = '\t'
-                output += c
-                read_backslash = False
-            else:
-                if c == '\\':
-                    read_backslash = True
-                else:
-                    output += c
-        t.value = output
-        return t
-    return tokens, lex.lex(debug=DEBUG)
-
-def SQLParser():
-    precedence = (
-            ('left', 'OPERATOR'),
-        )
-
-    def p_error(p):
-        sqlerror(p)
-    
-    def p_statement(p):
-        'statement : select fields from where group order limit'
-        p[0] = Statement(p[2], p[3], p[4], p[5], p[6], p[7])
-    
-    def p_select(p):
-        '''select :
-                  | SELECT'''
-    
-    def p_fields(p):
-        'fields : field fieldlist'
-        p[0] = p[1] + p[2]
-
-    def p_field(p):
-        '''field : STAR
-                 | IDENTIFIER
-                 | function'''
-        p[0] = [Field(p[1])]
-
-    def p_fieldlist(p):
-        '''fieldlist :
-                     | COMMA field fieldlist'''
-        if len(p) > 1:
-            if p[3] != None:
-                p[0] = p[2] + p[3]
-            else:
-                p[0] = p[2]
-
-    def p_function(p):
-        'function : fname LPAREN IDENTIFIER RPAREN'
-        p[0] = Function(p[1], p[3])
-
-    def p_fname(p):
-        '''fname : F_AVG
-                 | F_MAX
-                 | F_MIN
-                 | F_COUNT'''
-        p[0] = p[1]
-    
-    def p_from(p):
-        '''from :
-                | FROM IDENTIFIER'''
-        if len(p) > 1:
-            return From(p[2])
-
-    def p_where(p):
-        '''where :
-                 | WHERE wherelist'''
-        if len(p) > 1:
-                p[0] = Where(p[2])
-
-    def p_wherelist(p):
-        '''wherelist : 
-                     | wherexpr
-                     | wherexpr AND wherelist
-                     | wherexpr OR wherelist'''
-        if len(p) == 4:
-            if p[2].lower() == 'and':
-                p[0] = And(p[1], p[3])
-            else:
-                p[0] = Or(p[1], p[3])
-        else:
-            if len(p) > 1:
-                #p[0] = p[1], p[2]
-                p[0] = p[1]
-    
-    def p_wherexpr(p):
-        '''wherexpr : whereval OPERATOR whereval
-                    | whereval IN inlist
-                    | whereval BETWEEN whereval AND whereval
-                    | wherexpr_grouped'''
-        if len(p) == 4:
-            if p[2].lower() == 'in':
-                p[0] = In(p[1], p[3])
-            else:
-                p[0] = Boolean(p[1], p[2], p[3])
-        elif len(p) == 6:
-            p[0] = Between(p[1], p[3], p[5])
-        else:
-            p[0] = p[1]
-
-    def p_inlist(p):
-        'inlist : LPAREN initem initemlist RPAREN'
-        if p[3] is not None:
-            p[0] = [p[2]] + p[3]
-        else:
-            p[0] = [p[2]]
-
-    def p_initemlist(p):
-        '''initemlist : 
-                      | COMMA initem initemlist'''
-        if len(p) > 1:
-            if p[3] != None:
-                p[0] = [p[2]] + p[3]
-            else:
-                p[0] = [p[2]]
-
-    def p_initem(p):
-        '''initem : STRING
-                  | INTEGER
-                  | IDENTIFIER'''
-        p[0] = p[1]
-
-    def p_wherexpr_grouped(p):
-        'wherexpr_grouped : LPAREN wherelist RPAREN'
-        p[0] = (p[2],)
-
-    def p_whereval(p):
-        '''whereval : IDENTIFIER
-                    | INTEGER
-                    | STRING'''
-        p[0] = p[1]
-
-    def p_group(p):
-        '''group :
-                 | GROUP BY IDENTIFIER identlist'''
-        if p[4] is None:
-            p[0] = GroupBy([p[3]])
-        else:
-            p[0] = GroupBy([p[3]] + p[4])
-
-    def p_order(p):
-        '''order :
-                 | ORDER BY IDENTIFIER identlist direction'''
-        if len(p) > 1:
-            if p[4] is not None:
-                fields = [p[3]] + p[4]
-            else:
-                fields = [p[3]]
-            p[0] = OrderBy(fields, p[5])
-
-    def p_direction(p):
-        '''direction :
-                     | ASC
-                     | DESC'''
-        try:
-            p[0] = p[1]
-        except IndexError:
-            p[0] = 'asc'
-
-    def p_identlist(p):
-        '''identlist :
-                     | COMMA IDENTIFIER identlist'''
-        if len(p) > 1:
-            if p[3] != None:
-                p[0] = [p[2]] + p[3]
-            else:
-                p[0] = [p[2]]
-
-    def p_limit(p):
-        '''limit :
-                 | LIMIT IDENTIFIER'''
-        if len(p) > 1:
-            p[0] = Limit(p[2])
-
-    return yacc.yacc(debug=DEBUG)
-
-
-def setup_parser():
-    global tokens, sql_lexer, sql_parser
-    tokens, sql_lexer = SQLLexer()
-    sql_parser = SQLParser()
-
-def parse_sql(sql):
-    return sql_parser.parse(sql, lexer=sql_lexer, debug=DEBUG)
-
-class ChunkableList(list):
-    def chunks(self, size):
-        for i in xrange(0, len(self), size):
-            yield self[i:i+size]
-
-class ColSizes(object):
-    sizes = {}
-    @classmethod
-    def add(cls, key, value):
-        if cls.sizes.get(key, None) is None:
-            cls.sizes[key] = len(key)
-        if len(value) > cls.sizes.get(key):
-            cls.sizes[key] = len(value)
-
-    @classmethod
-    def get(cls, key):
-        return cls.sizes[key]
+import parser
+from logformat import TYPES
+from util import NoTokenError, ChunkableList, ColSizes, parse_format_string, Complete, Table
 
 class LogQuery(object):
     def __init__(self, parent, data, query):
@@ -425,7 +32,7 @@ class LogQuery(object):
         self.data = data
         self.query = query
         try:
-            q = parse_sql(query)
+            q = parser.parse(query)
         except NoTokenError, e:
             print "ERROR: %s" % e.message
             print query
@@ -522,69 +129,6 @@ class LogQuery(object):
             else:
                 response[item] = [row[item] for row in self.data]
         Table(response).prnt()
-
-class Complete(object):
-    def __init__(self, opts=[]):
-        self.options = opts
-
-    def addopts(self, opts=[]):
-        self.options = sorted(self.options + opts)
-
-    def complete(self, text, state):
-        """
-        print ""
-        print "line buffer: %s" % readline.get_line_buffer()
-        print "completion type %s:" % readline.get_completion_type()
-        print "start = %d" % readline.get_begidx()
-        print "end = %d" % readline.get_endidx()
-        """
-        if state == 0:
-            if text:
-                self.matches = [s for s in self.options if s and s.startswith(text)]
-            else:
-                self.matches = self.options[:]
-        try:
-            return self.matches[state]
-        except IndexError:
-            return None
-
-class Table(object):
-    def __init__(self, data):
-        if type(data) is not OrderedDict:
-            raise TypeError("Table(data): OrderedDict expected, found %s" % type(data))
-        self.data = data
-        self.size_columns()
-
-    def size_columns(self):
-        self.columnsize = {}
-        self.fmt = "|"
-        for k in self.data.keys():
-            size = max([len(str(x)) for x in self.data[k]+[k]])
-            self.fmt += "%%%ds|" % size
-            self.columnsize[k] = size
-
-    def print_bar(self):
-        keys = tuple(self.data.keys())
-        width = len(self.fmt % keys)-2
-        print "+%s+" % ('-'*width)
-
-    def translate(self):
-        """
-        Translate self.data from key:(row1, row2, row3), key2:(row1, row2, row3)
-        into (key, key2),(row1, row1), (row2, row2), (row3, row3)
-        """
-        return [tuple(self.data.keys())] + list(itertools.izip_longest(*self.data.values(), fillvalue='NULL'))
-
-    def prnt(self):
-        outdata = self.translate()
-        headers = outdata.pop(0)
-        self.print_bar()
-        print self.fmt % headers
-        self.print_bar()
-        for row in outdata:
-            print self.fmt % row
-        self.print_bar()
-
 
 class LoGrok(object):
     width = 0
@@ -724,7 +268,8 @@ class LoGrok(object):
         if query.startswith('help') or query.startswith('?'):
             answer = "Use sql syntax against your log, `from` clauses are ignored.\n"\
                     "Queries can span multiple lines and _must_ end in a semicolon `;`.\n"\
-                    " Try: `show fields;` to see available field names."
+                    " Try: `show fields;` to see available field names. Press TAB at the\n"\
+                    " beginning of a new line to see all available completions."
             return answer
         if query in ('show fields', 'show headers'):
             return ', '.join(self.data[0].keys())
@@ -803,75 +348,6 @@ class LoGrok(object):
             if c == ord('x'): break
             if c == ord('q'): self.get_query()
 
-def parse_format_string(fmt):
-    """ simple LALR scanner/parser for format string """
-    output = r'^'
-    state = None 
-    sq_state = None # start quote state
-    flen = len(fmt)
-    condition = re.compile(r'([!,\d\\]+)')
-    name = re.compile(r'\{([^\}]+)}')
-    capname = None
-    i = 0
-    while True:
-        if i == flen: break
-
-        c = fmt[i]
-        try:
-            nxt = fmt[i+1]
-        except IndexError:
-            nxt = None
-
-        if c == '%':
-            state = c
-            i += 1
-            c = fmt[i]
-            nxt = fmt[i+1]
-
-        if state != '%':
-            if nxt == '%' and c not in (' ', '\t'):
-                sq_state = c
-                i += 1
-                continue
-            else:
-                output += c
-                i += 1
-                continue
-        if state == '%':
-            if c in FORMAT:
-                if sq_state is not None:
-                    # this value is quoted, so we'll use dstring()
-                    if not capname:
-                        capname = FORMAT[c][1]
-                    output += Regex.dstring(sq_state, nxt, nxt, name=capname)
-                    sq_state = None
-                    i += 1
-                else:
-                    if not capname:
-                        capname = FORMAT[c][1]
-                    output += FORMAT[c][0](name=capname)
-                i += 1
-                state = None
-                capname = None
-                continue
-            if c == '{':
-                n = name.match(fmt[i:]).group(0)
-                capname=n[1:-1].replace('-', '_').lower()
-                i += len(n)
-                continue
-            if condition.match(c):
-                # this is a 'conditional' log message
-                cond = condition.match(fmt[i:]).group(0)
-                i += len(cond) # jump ahead
-                continue
-            if c in ('>', '<'):
-                # just skip these
-                i += 1
-                continue
-
-            raise SyntaxError()
-    return output + r'$'
-
 def rx_closure(rx):
     def dorx(iq, oq):
         r = re.compile(rx)
@@ -893,15 +369,14 @@ def main():
     cmd.add_argument('-l', '--lines', action='store', type=int, help='Only process LINES lines of input')
     interactive = cmd.add_mutually_exclusive_group(required=False)
     interactive.add_argument('-i', '--interactive', action='store_true', help="Use line-based interactive interface")
-    interactive.add_argument('-c', '--curses', action='store_true', help="Use curses-based interactive interface (Currntly Disabled)")
+    #interactive.add_argument('-c', '--curses', action='store_true', help="Use curses-based interactive interface (Currntly Disabled)")
     cmd.add_argument('-q', '--query', help="The query to run")
     cmd.add_argument('-d', '--debug', action='store_true', help="Turn debugging on")
     cmd.add_argument('logfile', nargs='+', type=argparse.FileType('r'))
     args = cmd.parse_args(sys.argv[1:])
 
-    global DEBUG
-    DEBUG = args.debug
-    setup_parser()
+    parser.DEBUG = args.debug
+    parser.init()
 
     if args.interactive:
         LoGrok(None, args, interactive=True)
@@ -912,4 +387,10 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        # TODO -- kill multiprocesses
+        # TODO -- reset terminal if curses
+        print
+        sys.exit(1)

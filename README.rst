@@ -14,18 +14,29 @@ Usage
 =====
 
 
-    ./logrok.py [-h] (-t TYPE | -f FORMAT) [-j PROCESSES] [-l LINES] [-i | -c] [-q QUERY] [-d] logfile [logfile ...]
-    
-    positional arguments:
-      logfile
-    
-    optional arguments:
-      -h, --help                            show help message and exit
-      -t TYPE, --type TYPE                  {syslog, apache-common-vhost, agent, apache-common, referer, ncsa-combined} 
-                                            Use built-in log type (default: apache-common)
-      -f FORMAT, --format FORMAT            Log format (use apache LogFormat string) (default: None)
-      -j PROCESSES, --processes PROCESSES   Number of processes to fork for log crunching (default: 12)
-      -l LINES, --lines LINES               Only process LINES lines of input (default: None)
-      -i, --interactive                     Use line-based interactive interface (default: False)
-      -q QUERY, --query QUERY               The query to run (default: None)
-      -d, --debug                           Turn debugging on (default: False)
+./logrok.py [-h] (-t TYPE | -f FORMAT) [-j PROCESSES] [-l LINES] [-i | -c] [-q QUERY] [-d] logfile [logfile ...]
+
+positional arguments:
+  logfile
+
+optional arguments:
+  -h, --help                            
+                                        show help message and exit
+  -t TYPE, --type TYPE                  {syslog, apache-common-vhost, agent, apache-common, referer, ncsa-combined} 
+                                        Use built-in log type (default: apache-common)
+  -f FORMAT, --format FORMAT            Log format (use apache LogFormat string) (default: None)
+  -j PROCESSES, --processes PROCESSES   Number of processes to fork for log crunching (default: 12)
+  -l LINES, --lines LINES               Only process LINES lines of input (default: None)
+  -i, --interactive                     Use line-based interactive interface (default: False)
+  -q QUERY, --query QUERY               The query to run (default: None)
+  -d, --debug                           
+                                            Turn debugging on (default: False)
+
+
+=======
+License
+=======
+
+LoGrok is licensed under the MIT license. [#]_
+
+.. [#] See the file ``LICENSE`` 
