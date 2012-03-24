@@ -1,7 +1,14 @@
 #!/usr/bin/env python
 
-import argparse
+"""Query and aggregate data from log files using SQL-like syntax"""
+
 import sys
+
+if sys.version < '2.7':
+    print "%s requires python2 version 2.7 or higher" % sys.argv[0]
+    sys.exit(1)
+
+import argparse
 import os
 import re
 import curses
@@ -17,14 +24,10 @@ import itertools
 
 from functools import partial
 from multiprocessing import Process, cpu_count, Queue
-from ply import lex, yacc
-
-if sys.version < '2.7':
-    print "%s requires python 2.x version 2.7 or higher" % sys.argv[0]
-    sys.exit(1)
-
 from collections import OrderedDict
 from collections import namedtuple
+
+from ply import lex, yacc
 
 DEBUG = False
 
@@ -882,7 +885,7 @@ def rx_closure(rx):
     return dorx
 
 def main():
-    cmd = argparse.ArgumentParser(description="Grok/Query/Aggregate log files\nFor best results, use python > 2.7 (and < 3.0)", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    cmd = argparse.ArgumentParser(description="Grok/Query/Aggregate log files. Requires python2 >= 2.7", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     typ = cmd.add_mutually_exclusive_group(required=True)
     typ.add_argument('-t', '--type', metavar='TYPE', choices=TYPES, help='{%s} Use built-in log type'%', '.join(TYPES), default='apache-common')
     typ.add_argument('-f', '--format', action='store', help='Log format (use apache LogFormat string)')
