@@ -145,10 +145,11 @@ def p_whereval(p):
 def p_group(p):
     '''group :
              | GROUP BY IDENTIFIER identlist'''
-    if p[4] is None:
-        p[0] = GroupBy([p[3]])
-    else:
-        p[0] = GroupBy([p[3]] + p[4])
+    if len(p) > 1:
+        if p[4] is None:
+            p[0] = GroupBy([p[3]])
+        else:
+            p[0] = GroupBy([p[3]] + p[4])
 
 def p_order(p):
     '''order :
@@ -167,7 +168,7 @@ def p_direction(p):
     try:
         p[0] = p[1]
     except IndexError:
-        p[0] = 'asc'
+        p[0] = 'asc' # default to 'asc'
 
 def p_identlist(p):
     '''identlist :

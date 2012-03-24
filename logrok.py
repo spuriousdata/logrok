@@ -32,14 +32,15 @@ class LogQuery(object):
         self.data = data
         self.query = query
         try:
-            q = parser.parse(query)
+            self.ast = parser.parse(query)
         except NoTokenError, e:
             print "ERROR: %s" % e.message
             print query
             return
         except SyntaxError:
             return
-        sq = str(q)
+        # pretty-printer
+        sq = str(self.ast)
         oq = ""
         indent = 0
         for c in sq:
@@ -54,45 +55,9 @@ class LogQuery(object):
             else:
                 oq += c
         print oq
-        print sq
+        print self.ast
+        self.run()
     
-    def select(self, query):
-        self.what = []
-        if query.startswith('select'):
-            # skip select
-            query = query[query.find(' '):]
-
-        brklater = False
-        while True:
-            (tok, delim, query) = self.qtok(',', query)
-            spc = tok.find(' ')
-            nxt = ''
-            if spc != -1:
-                t= tok[:spc]
-                nxt = tok[spc+1:]
-                tok = t
-                query = nxt + ' ' + query # unget token
-                brklater=True
-            if len(query) == 0:
-                brklater=True
-            #if tok not in self.data[0].keys():
-            #    raise SyntaxError("ERROR: %s is not a valid field!\nChoices are %s" % (tok, ','.join(self.data[0].keys())))
-            self.what.append(tok)
-            if brklater:
-                break
-        if query.startswith('from '):
-            try:
-                query = query[len('from '):]
-                query = query[query.find(' ')+1:]
-            except IndexError:
-                return
-
-
-    def qtok(self, delim, s):
-        s.strip()
-        ret = s.partition(delim)
-        return tuple([x.strip() for x in ret])
-
     def avg(self, column):
         vals = ChunkableList([v for row in self.data for v in row[column]])
         tasklist = []
@@ -110,9 +75,19 @@ class LogQuery(object):
             total = sum([int(line) for line in lines])
             outq.put((total, numlines))
 
+    def where(self):
+        """ and or in boolean between """
+        if self.ast.where is None:
+            return
+        where = self.ast.where.predicates
+        if type(where) != list:
+            pass
+
     def run(self):
+        self.op_data = self.data[:] # COPY!!! 
+        self.where()
         return
-        response = OrderedDict()
+        """
         for item in self.what:
             lparen = item.find('(')
             if lparen != -1:
@@ -128,6 +103,8 @@ class LogQuery(object):
                 response[item] = f(param)
             else:
                 response[item] = [row[item] for row in self.data]
+        """
+        self.op_data = None
         Table(response).prnt()
 
 class LoGrok(object):
@@ -255,7 +232,11 @@ class LoGrok(object):
         readline.set_history_length(1000)
         readline.parse_and_bind('tab: complete')
         readline.set_completer(self.complete.complete)
-        self.complete.addopts(['select', 'where', 'avg', 'max', 'min', 'count', 'between', ] + self.data[0].keys())
+        # XXX This is ugly and needs to be more intelligent. Ideally, the 
+        #     completer would use readline.readline() to contextually switch out
+        #     the returned matches
+        self.complete.addopts(['select', 'from log', 'where', 'avg', 'max', 'min', 'count', 'between',
+            'order by', 'group by', 'limit', ] + self.data[0].keys())
         while True:
             q = raw_input("logrok> ").strip()
             while not q.endswith(";"):
