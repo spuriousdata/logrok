@@ -1,3 +1,4 @@
+import ast
 from collections import namedtuple
 
 from ply import yacc
@@ -51,7 +52,7 @@ def p_field(p):
              | INTEGER
              | STRING
              | function'''
-    p[0] = [Field(p[1])]
+    p[0] = [p[1]]
 
 def p_fieldlist(p):
     '''fieldlist :
@@ -63,27 +64,29 @@ def p_fieldlist(p):
             p[0] = p[2]
 
 def p_function(p):
-    'function : fname LPAREN IDENTIFIER RPAREN'
-    p[0] = Function(p[1], p[3])
+    'function : fname LPAREN field fieldlist RPAREN'
+    if p[4] is not None:
+        params = [p[3]] + p[4]
+    else:
+        params = [p[3]]
+    p[0] = ast.Call(p[1], params)
 
 def p_fname(p):
     '''fname : F_AVG
              | F_MAX
              | F_MIN
              | F_COUNT'''
-    p[0] = p[1]
+    p[0] = ast.Name(p[1], ast.Load())
 
 def p_from(p):
     '''from :
             | FROM IDENTIFIER'''
-    if len(p) > 1:
-        return From(p[2])
 
 def p_where(p):
     '''where :
              | WHERE wherelist'''
     if len(p) > 1:
-            p[0] = Where(p[2])
+            p[0] = ast.Module(ast.Expr(p[2]))
 
 def p_wherelist(p):
     '''wherelist : 
@@ -91,10 +94,8 @@ def p_wherelist(p):
                  | wherexpr AND wherelist
                  | wherexpr OR wherelist'''
     if len(p) == 4:
-        if p[2].lower() == 'and':
-            p[0] = And(p[1], p[3])
-        else:
-            p[0] = Or(p[1], p[3])
+            rval = [p[1], p[3]]
+            p[0] = ast.BoolOp(p[2], rval)
     else:
         if len(p) > 1:
             #p[0] = p[1], p[2]
@@ -106,21 +107,41 @@ def p_wherexpr(p):
                 | whereval BETWEEN whereval AND whereval
                 | wherexpr_grouped'''
     if len(p) == 4:
-        if p[2].lower() == 'in':
-            p[0] = In(p[1], p[3])
-        else:
-            p[0] = Boolean(p[1], p[2], p[3])
+        # field = value
+        lval = p[1]
+        rval = p[3]
+        node = ast.Compare(
+                    left=lval,
+                    ops=[p[2]],
+                    comparators=[rval]
+                )
+        p[0] = node
     elif len(p) == 6:
-        p[0] = Between(p[1], p[3], p[5])
+        # between 1 and 10
+        # this is analogous to:
+        #  p[1] >= p[3] and p[1] <= p[5]
+        p[0] = ast.BoolOp(ast.And(), [
+                ast.Compare(
+                    p[1],
+                    [ast.GtE()],
+                    [p[3]]
+                ),
+                ast.Compare(
+                    p[1],
+                    [ast.LtE()],
+                    [p[5]]
+                )
+            ])
     else:
+        # group
         p[0] = p[1]
 
 def p_inlist(p):
     'inlist : LPAREN initem initemlist RPAREN'
     if p[3] is not None:
-        p[0] = [p[2]] + p[3]
+        p[0] = ast.Tuple([p[2]] + p[3], ast.Load())
     else:
-        p[0] = [p[2]]
+        p[0] = ast.Tuple([p[2]], ast.Load())
 
 def p_initemlist(p):
     '''initemlist : 
@@ -139,7 +160,7 @@ def p_initem(p):
 
 def p_wherexpr_grouped(p):
     'wherexpr_grouped : LPAREN wherelist RPAREN'
-    p[0] = (p[2],)
+    p[0] = p[2]
 
 def p_whereval(p):
     '''whereval : IDENTIFIER

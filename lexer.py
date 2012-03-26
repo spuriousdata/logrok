@@ -1,3 +1,5 @@
+import ast
+
 from ply import lex
 
 from util import sqlerror
@@ -41,12 +43,41 @@ t_STAR      = r'\*'
 t_LPAREN    = r'\('
 t_RPAREN    = r'\)'
 t_COMMA     = r','
-t_OPERATOR  = r'=|<>|<|>|<=|>='
-t_INTEGER   = r'\d+'
+
+def t_OPERATOR(t):
+    r'=|<>|<|>|<=|>='
+    op = t.value
+    if op == '=':
+        t.value = ast.Eq()
+    elif op == '<>':
+        t.value = ast.NotEq()
+    elif op == '<':
+        t.value = ast.Lt()
+    elif op == '>':
+        t.value = ast.Gt()
+    elif op =='<=':
+        t.value = ast.LtE()
+    elif op == '>=':
+        t.value = ast.GtE()
+    return t
+    
+
+def t_INTEGER(t):
+    r'\d+'
+    t.value = ast.Num(t.value)
+    return t
 
 def t_IDENTIFIER(t):
     r'[\w][\w\.\-]*'
     t.type = _keywords.get(t.value.lower(), 'IDENTIFIER')
+    if t.type == 'IN':
+        t.value = ast.In()
+    elif t.type == 'AND':
+        t.value = ast.And()
+    elif t.type == 'OR':
+        t.value = ast.Or()
+    elif t.type == 'IDENTIFIER':
+        t.value = ast.Name(t.value, ast.Load())
     return t
 
 def t_error(t):
@@ -71,7 +102,7 @@ def t_STRING(t):
                 read_backslash = True
             else:
                 output += c
-    t.value = output
+    t.value = ast.Str(output)
     return t
 
 def getlexer():

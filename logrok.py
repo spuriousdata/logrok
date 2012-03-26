@@ -40,7 +40,8 @@ class LogQuery(object):
         except SyntaxError:
             return
         # pretty-printer
-        sq = str(self.ast)
+        import ast
+        sq = "Statement(fields=" + ', '.join([ast.dump(x) for x in self.ast.fields]) + ", frm=xx, where=" + ast.dump(self.ast.where) + ")"
         oq = ""
         indent = 0
         for c in sq:
@@ -56,6 +57,7 @@ class LogQuery(object):
                 oq += c
         print oq
         print self.ast
+        print ast.dump(self.ast.where)
         self.run()
     
     def avg(self, column):
@@ -79,7 +81,7 @@ class LogQuery(object):
         """ and or in boolean between """
         if self.ast.where is None:
             return
-        where = self.ast.where.predicates
+        where = self.ast.where
         if type(where) != list:
             pass
 
