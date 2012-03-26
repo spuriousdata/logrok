@@ -26,6 +26,8 @@ import parser
 from logformat import TYPES
 from util import NoTokenError, ChunkableList, ColSizes, parse_format_string, Complete, Table
 
+DEBUG = False
+
 class LogQuery(object):
     def __init__(self, parent, data, query):
         self.parent = parent
@@ -39,25 +41,27 @@ class LogQuery(object):
             return
         except SyntaxError:
             return
-        # pretty-printer
-        import ast
-        sq = "Statement(fields=" + ', '.join([ast.dump(x) for x in self.ast.fields]) + ", frm=xx, where=" + ast.dump(self.ast.where) + ")"
-        oq = ""
-        indent = 0
-        for c in sq:
-            if c in ('(', '['):
-                indent += 1
-                oq += c + ('\n%s' % ('    '*indent))
-            elif c in (')', ']'):
-                indent -= 1
-                oq += ('\n%s' % ('    '*indent)) + c
-            elif c == ',':
-                oq += c + ('\n%s' % ('    '*indent))
-            else:
-                oq += c
-        print oq
-        print self.ast
-        print ast.dump(self.ast.where)
+        if DEBUG:
+            # pretty-printer
+            import ast
+            sq = "Statement(fields=" + ', '.join([ast.dump(x) for x in self.ast.fields]) + ", frm=xx, where=" + ast.dump(self.ast.where) + ")"
+            oq = ""
+            indent = 0
+            for c in sq:
+                if c in ('(', '['):
+                    indent += 1
+                    oq += c + ('\n%s' % ('    '*indent))
+                elif c in (')', ']'):
+                    indent -= 1
+                    oq += ('\n%s' % ('    '*indent)) + c
+                elif c == ',':
+                    oq += c + ('\n%s' % ('    '*indent))
+                else:
+                    oq += c
+            print oq
+            print self.ast
+            print ast.dump(self.ast.where)
+        print '-'*LoGrok.width
         self.run()
     
     def avg(self, column):
@@ -114,10 +118,10 @@ class LoGrok(object):
     height = 0
     fullwidth = ""
     curses = False
-    def __init__(self, screen, args, interactive=False, chunksize=10000):
-        if screen:
+    def __init__(self, args, interactive=False, curses=False, chunksize=10000):
+        if curses:
             LoGrok.curses = True
-            self.screen = screen
+            #self.screen = screen
         self.interactive = interactive
         self.args = args
         self.processed_rows = 0
@@ -222,7 +226,7 @@ class LoGrok(object):
         if self.interactive:
             self.shell()
             return
-        self.query(self.args.query)
+        print self.query(self.args.query)
 
     def shell(self):
         try:
@@ -355,21 +359,17 @@ def main():
     cmd.add_argument('-l', '--lines', action='store', type=int, help='Only process LINES lines of input')
     interactive = cmd.add_mutually_exclusive_group(required=False)
     interactive.add_argument('-i', '--interactive', action='store_true', help="Use line-based interactive interface")
-    #interactive.add_argument('-c', '--curses', action='store_true', help="Use curses-based interactive interface (Currntly Disabled)")
-    cmd.add_argument('-q', '--query', help="The query to run")
-    cmd.add_argument('-d', '--debug', action='store_true', help="Turn debugging on")
-    cmd.add_argument('logfile', nargs='+', type=argparse.FileType('r'))
+    interactive.add_argument('-c', '--curses', action='store_true', help=argparse.SUPPRESS)
+    interactive.add_argument('-q', '--query', help="The query to run")
+    cmd.add_argument('-d', '--debug', action='store_true', help="Turn debugging on (you don't want this)")
+    cmd.add_argument('logfile', nargs='+', help="log(s) to parse/query")
     args = cmd.parse_args(sys.argv[1:])
 
-    parser.DEBUG = args.debug
+    DEBUG = args.debug
+    parser.DEBUG = DEBUG
     parser.init()
 
-    if args.interactive:
-        LoGrok(None, args, interactive=True)
-    #elif args.curses:
-    #    curses.wrapper(LoGrok, args, curses=True)
-    else:
-        LoGrok(None, args)
+    LoGrok(args, interactive=args.interactive, curses=args.curses)
 
 
 if __name__ == '__main__':

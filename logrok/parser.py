@@ -11,15 +11,6 @@ DEBUG = False
 tokens = lexer.tokens
 
 Statement   = namedtuple('Statement',   ['fields', 'frm', 'where', 'groupby', 'orderby', 'limit'])
-Function    = namedtuple('Function',    ['name', 'args'])
-Field       = namedtuple('Field',       ['name'])
-Where       = namedtuple('Where',       ['predicates'])
-And         = namedtuple('And',         ['lval', 'rval'])
-Or          = namedtuple('Or',          ['lval', 'rval'])
-In          = namedtuple('In',          ['field', 'inlist'])
-Boolean     = namedtuple('Boolean',     ['lval', 'operator', 'rval'])
-Between     = namedtuple('Between',     ['field', 'lval', 'rval'])
-From        = namedtuple('From',        ['table'])
 GroupBy     = namedtuple('GroupBy',     ['fields'])
 OrderBy     = namedtuple('OrderBy',     ['fields', 'direction'])
 Limit       = namedtuple('Limit',       ['value'])
@@ -110,12 +101,11 @@ def p_wherexpr(p):
         # field = value
         lval = p[1]
         rval = p[3]
-        node = ast.Compare(
+        p[0] = ast.Compare(
                     left=lval,
                     ops=[p[2]],
                     comparators=[rval]
                 )
-        p[0] = node
     elif len(p) == 6:
         # between 1 and 10
         # this is analogous to:
@@ -207,7 +197,7 @@ def p_identlist(p):
 
 def p_limit(p):
     '''limit :
-             | LIMIT IDENTIFIER'''
+             | LIMIT INTEGER'''
     if len(p) > 1:
         p[0] = Limit(p[2])
 
