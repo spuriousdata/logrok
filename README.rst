@@ -39,4 +39,6 @@ License
 
 LoGrok is licensed under the MIT license. [#]_
 
-.. [#] See the file ``LICENSE`` 
+.. [#] See the file LICENSE_
+
+.. _LICENSE: http://github.com/spuriousdata/logrok/blob/master/LICENSE
