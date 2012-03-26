@@ -258,6 +258,9 @@ class LoGrok(object):
             return ', '.join(self.data[0].keys())
         else:
             try:
+                semicolon = query.find(';')
+                if semicolon != -1:
+                    query = query[:semicolon]
                 q = LogQuery(self, self.data, query)
                 return q.run()
             except SyntaxError, e:
@@ -363,8 +366,8 @@ def main():
 
     if args.interactive:
         LoGrok(None, args, interactive=True)
-    elif args.curses:
-        curses.wrapper(LoGrok, args, curses=True)
+    #elif args.curses:
+    #    curses.wrapper(LoGrok, args, curses=True)
     else:
         LoGrok(None, args)
 
