@@ -60,7 +60,7 @@ def p_function(p):
         params = [p[3]] + p[4]
     else:
         params = [p[3]]
-    p[0] = ast.Call(p[1], params)
+    p[0] = ast.Call(p[1], params, [], None, None)
 
 def p_fname(p):
     '''fname : F_AVG
