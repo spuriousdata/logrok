@@ -104,6 +104,22 @@ def parse_format_string(fmt):
             raise SyntaxError()
     return output + r'$'
 
+def pretty_print(sq):
+    oq = ""
+    indent = 0
+    for c in sq:
+        if c in ('(', '['):
+            indent += 1
+            oq += c + ('\n%s' % ('    '*indent))
+        elif c in (')', ']'):
+            indent -= 1
+            oq += ('\n%s' % ('    '*indent)) + c
+        elif c == ',':
+            oq += c + ('\n%s' % ('    '*indent))
+        else:
+            oq += c
+    print oq
+
 class Complete(object):
     def __init__(self, opts=[]):
         self.options = opts
