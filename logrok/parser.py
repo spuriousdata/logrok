@@ -77,7 +77,7 @@ def p_where(p):
     '''where :
              | WHERE wherelist'''
     if len(p) > 1:
-            p[0] = ast.Module(ast.Expr(p[2]))
+            p[0] = ast.Expression(p[2])
 
 def p_wherelist(p):
     '''wherelist : 

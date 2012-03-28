@@ -9,8 +9,8 @@ import sys
 
 from util import ColSizes
 
-width, height = (0, 0)
-fullwidth_fmt = ""
+width, height = (80, 80)
+fullwidth_fmt = "%-80s"
 _screen = None
 
 def init_curses(callback):

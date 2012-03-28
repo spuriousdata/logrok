@@ -11,6 +11,7 @@ if sys.version < '2.7':
 import argparse
 import os
 import re
+import ast
 from multiprocessing import cpu_count
 
 from ply import yacc
@@ -47,32 +48,37 @@ class LogQuery(object):
         self.run()
     
     def avg(self, column):
-        """
-        This is actually a reduce/reduce because both of the
-        operations return a single aggregated value for the data set
-        """
         vals = [v for row in self.data for v in row[column]]
-        # reduce
-        data = parallel.run(self._avg_reduce, vals)
-        # reduce again
-        dividend = parallel.run(parallel.reduce(lambda data: sum([d[0] for d in data], 0.0)))
-        divisor  = parallel.run(parallel.reduce(lambda data: sum([d[1] for d in data])))
+        data = parallel.run(parallel.map(
+            lambda chunk: [(sum([int(line) for line in chunk]), len(chunk))]), 
+            vals
+        )
+        dividend = parallel.run(parallel.reduce(lambda data: sum([d[0] for d in data], 0.0)), data)
+        divisor  = parallel.run(parallel.reduce(lambda data: sum([d[1] for d in data])), data)
         avg = dividend/divisor
         return [avg]
 
-    @parallel.reduce
-    def _avg_reduce(self, chunk):
-        numlines = len(chunk)
-        total = sum([int(line) for line in chunk])
-        return (total, numlines)
-
     def where(self):
-        """ and or in boolean between """
+        """
+        Compile `where` ast into executable code and run 
+        a parallel 'filter' on the data with it
+        """
         if self.ast.where is None:
             return
-        where = self.ast.where
-        if type(where) != list:
-            pass
+        ast.fix_missing_locations(self.ast.where)
+        parallel.run(self._where, self.op_data, numprocs=1)
+
+    @parallel.map
+    def _where(self, chunk):
+        code = compile(self.ast.where, '', 'eval')
+        res = []
+        for line in chunk:
+            for k in line.keys():
+                locals()[k] = line[k]
+                if eval(code):
+                    res.append(line)
+        return res
+        
 
     def run(self):
         self.op_data = self.data[:] # COPY!!! 
@@ -102,7 +108,7 @@ class LoGrok(object):
     def __init__(self, args, interactive=False, curses=False, chunksize=10000):
         if curses:
             screen.init_curses()
-        else:
+        elif interactive:
             screen.init_linebased()
         self.interactive = interactive
         self.args = args

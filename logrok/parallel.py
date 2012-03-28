@@ -9,18 +9,24 @@ numprocs=SMART
 
 def map(f):
     @wraps(f)
-    def wrapper(inq, outq):
+    def wrapper(*args, **kwargs):
+        inq=kwargs['inq']
+        outq=kwargs['outq']
         for chunk in iter(inq.get, 'ITER_STOP'):
-            resp = f(chunk)
+            args = tuple(list(args) + [chunk])
+            resp = f(*args)
             for i in resp:
                 outq.put(i)
     return wrapper
 
 def reduce(f):
     @wraps(f)
-    def wrapper(inq, outq):
+    def wrapper(*args, **kwargs):
+        inq=kwargs['inq']
+        outq=kwargs['outq']
         for chunk in iter(inq.get, 'ITER_STOP'):
-            outq.put(f(chunk))
+            tuple(list(args).append(chunk))
+            outq.put(f(*args, **kwargs))
     return wrapper
 
 class Job(object):
@@ -89,6 +95,6 @@ def _enqueue_data(data, chunksize, job):
 def _run(func, job, numprocs):
     screen.print_line("Spawning %d processes to crunch data." % numprocs)
     for i in xrange(0, numprocs+1):
-        proc = Process(target=func, args=(job.in_queue, job.out_queue))
+        proc = Process(target=func, kwargs={'inq':job.in_queue, 'outq':job.out_queue})
         proc.start()
         job.processes.append(proc)
