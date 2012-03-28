@@ -39,7 +39,7 @@ def print_mutable(line, end=False):
         _screen.refresh()
     else:
         if len(line):
-            sys.stdout.write("\r%s" % (fullwidth_fmt % line))
+            sys.stdout.write("\r  %s" % (fullwidth_fmt % line))
             sys.stdout.flush()
         if end:
             _end_print_mutable()

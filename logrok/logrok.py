@@ -13,12 +13,14 @@ import os
 import re
 import ast
 from multiprocessing import cpu_count
+from collections import OrderedDict
 
 from ply import yacc
 
 import parser
 import parallel
 import screen
+import sqlfuncs
 from logformat import TYPES
 from util import NoTokenError, parse_format_string, Complete, Table, pretty_print
 
@@ -44,8 +46,7 @@ class LogQuery(object):
             pretty_print(sq)
             print self.ast
             print ast.dump(self.ast.where)
-        print '-'*screen.width
-        self.run()
+            print '-'*screen.width
     
     def avg(self, column):
         vals = [v for row in self.data for v in row[column]]
@@ -58,50 +59,12 @@ class LogQuery(object):
         avg = dividend/divisor
         return [avg]
 
-    def where(self):
-        """
-        Compile `where` ast into executable code and run 
-        a parallel 'filter' on the data with it
-        """
-        if self.ast.where is None:
-            return
-        ast.fix_missing_locations(self.ast.where)
-        parallel.run(self._where, self.op_data, numprocs=1)
-
-    @parallel.map
-    def _where(self, chunk):
-        code = compile(self.ast.where, '', 'eval')
-        res = []
-        for line in chunk:
-            for k in line.keys():
-                locals()[k] = line[k]
-                if eval(code):
-                    res.append(line)
-        return res
-        
-
     def run(self):
-        self.op_data = self.data[:] # COPY!!! 
-        self.where()
-        return
-        """
-        for item in self.what:
-            lparen = item.find('(')
-            if lparen != -1:
-                rparen = item.find(')')
-                if rparen == -1:
-                    raise SyntaxError("Error at %s" % tok)
-                func = item[:lparen]
-                param = item[lparen+1:rparen]
-                try:
-                    f = getattr(self, func)
-                except AttributeError:
-                    raise SyntaxError("ERROR: function %s does not exist" % func)
-                response[item] = f(param)
-            else:
-                response[item] = [row[item] for row in self.data]
-        """
-        self.op_data = None
+        op_data = self.data[:] # COPY!!! 
+        op_data = sqlfuncs.where(self.ast.where, op_data)
+        op_data = sqlfuncs.what(self.ast.fields, op_data)
+        response = OrderedDict()
+        response[item] = [row[item] for row in op_data for item in row.keys()]
         Table(response).prnt()
 
 class LoGrok(object):

@@ -9,44 +9,47 @@ numprocs=SMART
 
 def map(f):
     @wraps(f)
-    def wrapper(*args, **kwargs):
+    def wrapper(**kwargs):
         inq=kwargs['inq']
         outq=kwargs['outq']
+        del kwargs['inq']
+        del kwargs['outq']
         for chunk in iter(inq.get, 'ITER_STOP'):
-            args = tuple(list(args) + [chunk])
-            resp = f(*args)
+            resp = f(chunk, **kwargs)
             for i in resp:
                 outq.put(i)
     return wrapper
 
 def reduce(f):
     @wraps(f)
-    def wrapper(*args, **kwargs):
+    def wrapper(**kwargs):
         inq=kwargs['inq']
         outq=kwargs['outq']
+        del kwargs['inq']
+        del kwargs['outq']
         for chunk in iter(inq.get, 'ITER_STOP'):
-            tuple(list(args).append(chunk))
-            outq.put(f(*args, **kwargs))
+            outq.put(f(chunk, **kwargs))
     return wrapper
 
 class Job(object):
-    def __init__(self, datalen):
+    def __init__(self, datalen, name):
         self.datalen = datalen
+        self.name = name
         self.processes = []
         self.in_queue = Queue()
         self.out_queue = Queue()
         self.processed_rows = 0
         self.pct_complete = 0
 
-def run(func, data, chunksize=SMART, numprocs=numprocs, wait=True):
+def run(func, data, name="<main>", chunksize=SMART, numprocs=numprocs, wait=True, **kwargs):
     if chunksize == SMART:
         chunksize = min(10000, len(data)/cpu_count())
         
     if numprocs == SMART:
         numprocs = min(int(cpu_count()*1.5), len(data)/chunksize)
 
-    job = Job(len(data))
-    _run(func, job, numprocs)
+    job = Job(len(data), name)
+    _run(func, job, numprocs, **kwargs)
     _enqueue_data(data, chunksize, job)
     if not wait:
         return job
@@ -92,9 +95,11 @@ def _enqueue_data(data, chunksize, job):
     for j in job.processes:
         job.in_queue.put('ITER_STOP')
 
-def _run(func, job, numprocs):
-    screen.print_line("Spawning %d processes to crunch data." % numprocs)
+def _run(func, job, numprocs, **kwargs):
+    screen.print_line("Spawning %d processes to crunch data for %s." % (numprocs, job.name))
     for i in xrange(0, numprocs+1):
-        proc = Process(target=func, kwargs={'inq':job.in_queue, 'outq':job.out_queue})
+        kwargs['inq'] = job.in_queue
+        kwargs['outq'] = job.out_queue
+        proc = Process(target=func, kwargs=kwargs)
         proc.start()
         job.processes.append(proc)
