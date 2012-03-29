@@ -45,10 +45,9 @@ class LogQuery(object):
         if DEBUG:
             # pretty-printer
             import ast
-            sq = "Statement(fields=" + ', '.join([ast.dump(x) for x in self.ast.fields]) + ", frm=xx, where=" + ast.dump(self.ast.where) + ")"
+            sq = "Statement(fields=" + ast.dump(self.ast.fields) + ", frm=xx, where=" + ast.dump(self.ast.where) + ")"
             pretty_print(sq)
-            print self.ast
-            print ast.dump(self.ast.where)
+            print sq
             print '-'*screen.width
     
     def run(self):
@@ -190,6 +189,7 @@ def main():
     global DEBUG
     DEBUG = args.debug
     parser.DEBUG = DEBUG
+    parallel.DEBUG = DEBUG
     parser.init()
 
     parallel.numprocs = args.processes
