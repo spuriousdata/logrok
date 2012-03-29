@@ -12,6 +12,8 @@ import argparse
 import os
 import re
 import ast
+import readline
+import atexit
 from multiprocessing import cpu_count
 from collections import OrderedDict
 
@@ -48,23 +50,18 @@ class LogQuery(object):
             print ast.dump(self.ast.where)
             print '-'*screen.width
     
-    def avg(self, column):
-        vals = [v for row in self.data for v in row[column]]
-        data = parallel.run(parallel.map(
-            lambda chunk: [(sum([int(line) for line in chunk]), len(chunk))]), 
-            vals
-        )
-        dividend = parallel.run(parallel.reduce(lambda data: sum([d[0] for d in data], 0.0)), data)
-        divisor  = parallel.run(parallel.reduce(lambda data: sum([d[1] for d in data])), data)
-        avg = dividend/divisor
-        return [avg]
-
     def run(self):
         op_data = self.data[:] # COPY!!! 
         op_data = sqlfuncs.where(self.ast.where, op_data)
-        op_data = sqlfuncs.what(self.ast.fields, op_data)
+        op_data = sqlfuncs.fields(self.ast.fields, op_data)
         response = OrderedDict()
-        response[item] = [row[item] for row in op_data for item in row.keys()]
+        for row in op_data:
+            for key in row.keys():
+                if not response.has_key(key):
+                    response[key] = []
+                response[key].append(row[key])
+
+        #response[item] = [row[item] for row in op_data for item in ('date_time', 'response_time_us', 'x_ausername')]
         Table(response).prnt()
 
 class LoGrok(object):
@@ -103,7 +100,7 @@ class LoGrok(object):
         log_regex = re.compile(parse_format_string(logformat))
         if self.args.lines:
             lines = lines[:self.args.lines]
-        self.data = parallel.run(log_match, lines)
+        self.data = parallel.run(log_match, lines, _print=True)
 
     def interact(self):
         if screen.is_curses():
@@ -127,8 +124,8 @@ class LoGrok(object):
         # XXX This is ugly and needs to be more intelligent. Ideally, the 
         #     completer would use readline.readline() to contextually switch out
         #     the returned matches
-        self.complete.addopts(['select', 'from log', 'where', 'avg', 'max', 'min', 'count', 'between',
-            'order by', 'group by', 'limit', ] + self.data[0].keys())
+        self.complete.addopts(['select', 'from log', 'where', 'between',
+            'order by', 'group by', 'limit', ] + sqlfuncs.__funcs__ + self.data[0].keys())
         while True:
             q = raw_input("logrok> ").strip()
             while not q.endswith(";"):
@@ -146,9 +143,11 @@ class LoGrok(object):
                      "Queries can span multiple lines and _must_ end in a semicolon `;`.\n"\
                      " Try: `show fields;` to see available field names. Press TAB at the\n"\
                      " beginning of a new line to see all available completions."
-            return answer
+            print answer
+            return 
         if query in ('show fields', 'show headers'):
-            return ', '.join(self.data[0].keys())
+            print ', '.join(self.data[0].keys())
+            return
         else:
             try:
                 q = LogQuery(self.data, query)

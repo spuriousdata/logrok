@@ -71,7 +71,7 @@ FORMAT = {
     'B': (Regex.number, "body_size"),
     'b': (partial(Regex._or, Regex.number, Regex.nil), "body_size"),
     'C': (Regex.string, "cookie"),
-    'D': (Regex.number, "response_time_ms"),
+    'D': (Regex.number, "response_time_us"),
     'e': (Regex.string, "environment_var"),
     'f': (Regex.string, "filename"),
     'h': (Regex.host, "remote_host"),

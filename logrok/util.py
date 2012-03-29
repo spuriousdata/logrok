@@ -178,3 +178,4 @@ class Table(object):
         for row in outdata:
             print self.fmt % row
         self.print_bar()
+        print "%d rows returned" % len(outdata)
