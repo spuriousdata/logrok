@@ -95,7 +95,6 @@ class LoGrok(object):
             logfile.close()
             screen.print_mutable("", True)
 
-        print parse_format_string(logformat)
         log_regex = re.compile(parse_format_string(logformat))
         if self.args.lines:
             lines = lines[:self.args.lines]
@@ -204,7 +203,6 @@ def main():
             format = format[1:-1]
         args.format = format.replace(r"\'", "'").replace(r'\"', '"')
 
-    print args.format
     global DEBUG
     DEBUG = args.debug
     parser.DEBUG = DEBUG
