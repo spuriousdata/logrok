@@ -1,6 +1,5 @@
 import re
 import itertools
-from collections import OrderedDict
 from logformat import FORMAT, Regex
 
 class NoTokenError(SyntaxError): pass
@@ -147,8 +146,6 @@ class Complete(object):
 
 class Table(object):
     def __init__(self, data):
-        if type(data) is not OrderedDict:
-            raise TypeError("Table(data): OrderedDict expected, found %s" % type(data))
         self.data = data
         self.size_columns()
 
@@ -181,3 +178,4 @@ class Table(object):
         for row in outdata:
             print self.fmt % row
         self.print_bar()
+        print "%d rows returned" % len(outdata)

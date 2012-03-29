@@ -9,8 +9,8 @@ import sys
 
 from util import ColSizes
 
-width, height = (0, 0)
-fullwidth_fmt = ""
+width, height = (80, 80)
+fullwidth_fmt = "%-80s"
 _screen = None
 
 def init_curses(callback):
@@ -39,7 +39,7 @@ def print_mutable(line, end=False):
         _screen.refresh()
     else:
         if len(line):
-            sys.stdout.write("\r%s" % (fullwidth_fmt % line))
+            sys.stdout.write("\r  %s" % (fullwidth_fmt % line))
             sys.stdout.flush()
         if end:
             _end_print_mutable()

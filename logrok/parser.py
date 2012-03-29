@@ -33,9 +33,20 @@ def p_select(p):
 def p_fields(p):
     'fields : field fieldlist'
     if p[2] is not None:
-        p[0] = p[1] + p[2]
+        fields = p[1] + p[2]
     else:
-        p[0] = p[1]
+        fields = p[1]
+    _keys = []
+    _values = []
+    for f in fields:
+        if type(f) == ast.Name:
+            _keys.append(ast.Str(f.id))
+        elif type(f) == ast.Call:
+            _keys.append(ast.Str("%s(%s)" % (f.func.id, ','.join([n.s for n in f.args[1:]]))))
+        else:
+            _keys.append(f)
+        _values.append(f)
+    p[0] = ast.Expression(ast.Dict(_keys, _values))
 
 def p_field(p):
     '''field : STAR
@@ -56,10 +67,10 @@ def p_fieldlist(p):
 
 def p_function(p):
     'function : fname LPAREN field fieldlist RPAREN'
+    params = [ast.Name('__data__', ast.Load()), ast.Str(p[3][0].id)]
     if p[4] is not None:
-        params = [p[3]] + p[4]
-    else:
-        params = [p[3]]
+        for x in p[4]:
+            params.append(ast.Str(x.id))
     p[0] = ast.Call(p[1], params, [], None, None)
 
 def p_fname(p):
@@ -77,7 +88,7 @@ def p_where(p):
     '''where :
              | WHERE wherelist'''
     if len(p) > 1:
-            p[0] = ast.Module(ast.Expr(p[2]))
+            p[0] = ast.Expression(p[2])
 
 def p_wherelist(p):
     '''wherelist : 
