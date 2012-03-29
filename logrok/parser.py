@@ -39,12 +39,7 @@ def p_fields(p):
     _keys = []
     _values = []
     for f in fields:
-        if type(f) == ast.Name:
-            _keys.append(ast.Str(f.id))
-        elif type(f) == ast.Call:
-            _keys.append(ast.Str("%s(%s)" % (f.func.id, ','.join([n.s for n in f.args[1:]]))))
-        else:
-            _keys.append(f)
+        _keys.append(ast.Str(__get_fieldname(f)))
         _values.append(f)
     p[0] = ast.Expression(ast.Dict(_keys, _values))
 
@@ -67,18 +62,26 @@ def p_fieldlist(p):
 
 def p_function(p):
     'function : fname LPAREN field fieldlist RPAREN'
-    params = [ast.Name('__data__', ast.Load()), ast.Str(p[3][0].id)]
+    if type(p[3][0]) == ast.Name:
+        params = [ast.Name('__data__', ast.Load()), ast.Str(p[3][0].id)]
+    else:
+        params = [ast.Name('__data__', ast.Load()), p[3][0]]
     if p[4] is not None:
         for x in p[4]:
-            params.append(ast.Str(x.id))
+            if type(x) == ast.Name:
+                params.append(ast.Str(x.id))
+            else:
+                params.append(x)
     p[0] = ast.Call(p[1], params, [], None, None)
 
 def p_fname(p):
-    '''fname : F_AVG
-             | F_MAX
-             | F_MIN
-             | F_COUNT'''
-    p[0] = ast.Name(p[1], ast.Load())
+    'fname : IDENTIFIER'
+    #'''fname : F_AVG
+    #         | F_MAX
+    #         | F_MIN
+    #         | F_COUNT'''
+    #p[0] = ast.Name(p[1], ast.Load())
+    p[0] = p[1]
 
 def p_from(p):
     '''from :
@@ -222,4 +225,17 @@ def init():
 
 def parse(sql):
     return _parser.parse(sql, lexer=_lexer, debug=DEBUG)
+
+def __get_fieldname(f):
+    if type(f) == ast.Name:
+        return f.id
+    elif type(f) == ast.Call:
+        return "%s(%s)" % (f.func.id, ','.join([__get_fieldname(n) for n in f.args[1:]]))
+    elif type(f) == ast.Str:
+        return f.s
+    elif type(f) == ast.Num:
+        return "%d" % f.n
+    else:
+        return str(f)
+
 

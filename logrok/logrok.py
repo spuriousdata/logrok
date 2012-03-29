@@ -14,6 +14,7 @@ import re
 import ast
 import readline
 import atexit
+import time
 from multiprocessing import cpu_count
 from collections import OrderedDict
 
@@ -44,16 +45,14 @@ class LogQuery(object):
         if DEBUG:
             # pretty-printer
             import ast
-            sq = "Statement(fields=" + ', '.join([ast.dump(x) for x in self.ast.fields]) + ", frm=xx, where=" + ast.dump(self.ast.where) + ")"
+            sq = "Statement(fields=" + ast.dump(self.ast.fields) + ", frm=xx, where=" + ast.dump(self.ast.where) + ")"
             pretty_print(sq)
-            print self.ast
-            print ast.dump(self.ast.where)
+            print sq
             print '-'*screen.width
     
     def run(self):
-        op_data = self.data[:] # COPY!!! 
-        op_data = sqlfuncs.where(self.ast.where, op_data)
-        op_data = sqlfuncs.fields(self.ast.fields, op_data)
+        start_time = time.time()
+        op_data = sqlfuncs.do(self.ast, self.data[:]) # COPY!!! 
         response = OrderedDict()
         for row in op_data:
             for key in row.keys():
@@ -62,7 +61,7 @@ class LogQuery(object):
                 response[key].append(row[key])
 
         #response[item] = [row[item] for row in op_data for item in ('date_time', 'response_time_us', 'x_ausername')]
-        Table(response).prnt()
+        Table(response, start_time).prnt()
 
 class LoGrok(object):
     def __init__(self, args, interactive=False, curses=False, chunksize=10000):
@@ -190,6 +189,7 @@ def main():
     global DEBUG
     DEBUG = args.debug
     parser.DEBUG = DEBUG
+    parallel.DEBUG = DEBUG
     parser.init()
 
     parallel.numprocs = args.processes
