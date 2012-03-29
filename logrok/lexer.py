@@ -8,10 +8,10 @@ DEBUG = False
 
 _keywords = {
     'select':'SELECT',
-    'avg':'F_AVG',
-    'max':'F_MAX',
-    'min':'F_MIN',
-    'count':'F_COUNT',
+    #'avg':'F_AVG',
+    #'max':'F_MAX',
+    #'min':'F_MIN',
+    #'count':'F_COUNT',
     'from':'FROM',
     'where':'WHERE',
     'between':'BETWEEN',

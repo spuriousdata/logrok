@@ -67,18 +67,26 @@ def p_fieldlist(p):
 
 def p_function(p):
     'function : fname LPAREN field fieldlist RPAREN'
-    params = [ast.Name('__data__', ast.Load()), ast.Str(p[3][0].id)]
+    if type(p[3][0]) == ast.Name:
+        params = [ast.Name('__data__', ast.Load()), ast.Str(p[3][0].id)]
+    else:
+        params = [ast.Name('__data__', ast.Load()), p[3][0]]
     if p[4] is not None:
         for x in p[4]:
-            params.append(ast.Str(x.id))
+            if type(x) == ast.Name:
+                params.append(ast.Str(x.id))
+            else:
+                params.append(x)
     p[0] = ast.Call(p[1], params, [], None, None)
 
 def p_fname(p):
-    '''fname : F_AVG
-             | F_MAX
-             | F_MIN
-             | F_COUNT'''
-    p[0] = ast.Name(p[1], ast.Load())
+    'fname : IDENTIFIER'
+    #'''fname : F_AVG
+    #         | F_MAX
+    #         | F_MIN
+    #         | F_COUNT'''
+    #p[0] = ast.Name(p[1], ast.Load())
+    p[0] = p[1]
 
 def p_from(p):
     '''from :
