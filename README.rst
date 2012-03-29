@@ -2,7 +2,7 @@
 LoGrok
 ######
 
-LoGrok reads and parses arbitrary log files and allows you to run queries against their data. LoGrok can parse
+LoGrok reads and parses log files of arbitrary format and allows you to run queries against their data. LoGrok can parse
 standard Apache LogFormat strings to describe the format of the logdata and it can process mutliple logs at one time.
 LoGrok uses python's multiprocessing package to take full advantage of all of your CPUs ensuring the fastest parse and
 query time possible.
@@ -32,6 +32,60 @@ optional arguments:
   -d, --debug                           
                                             Turn debugging on (default: False)
 
+Note
+----
+* You probably want to run in interactive mode to avoid repeatedly parsing the log(s) at startup
+
+=======
+Queries
+=======
+
+Format
+------
+
+show <fields|headers>
+[select] <fieldlist> [from xxx] <where <wherelist>>; [#]_
+
+Helpers
+=======
+
+* ``show fields;``    lists available field names
+* ``show headers;``   alias for ``show fields;``
+* ``help;``           prints a short help
+
+Select Syntax
+=============
+
+* ``select``          is ignored, but can be passed
+* ``fieldlist``       can be any field or fields separated by commas; fields can also be function calls
+
+Functions
+~~~~~~~~~
+
+Aggregate Functions
+^^^^^^^^^^^^^^^^^^^
+Aggregate functions will calculate a total value for all rows
+
+* ``avg``             calculates average for specified column
+* ``count``           counts rows
+* ``max``             calculates max value in specified column
+* ``min``             calculates min value in specified column
+
+Value Functions
+^^^^^^^^^^^^^^^
+
+Value functions will modify one value
+
+* ``int``             converts to int
+* ``us_to_ms``        converts microseconds to milliseconds
+* ``ms_to_s``         converts milliseconds to seconds
+
+Example Queries
+---------------
+
+* select max(response_time_us), auth_user;
+* select date_time, auth_user, request from log where auth_user <> 'bob_smith';
+* select date_time, response_time_us where response_time_us > 5000000;
 
 =======
 License
@@ -39,6 +93,7 @@ License
 
 LoGrok is licensed under the MIT license. [#]_
 
+.. [#] ``GROUP BY`` and  ``ORDER BY`` are not yet supported
 .. [#] See the file LICENSE_
 
 .. _LICENSE: http://github.com/spuriousdata/logrok/blob/master/LICENSE
