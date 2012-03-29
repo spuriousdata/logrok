@@ -1,5 +1,6 @@
 import re
 import itertools
+import time
 from logformat import FORMAT, Regex
 
 class NoTokenError(SyntaxError): pass
@@ -145,8 +146,9 @@ class Complete(object):
             return None
 
 class Table(object):
-    def __init__(self, data):
+    def __init__(self, data, start_time):
         self.data = data
+        self.start = start_time
         self.size_columns()
 
     def size_columns(self):
@@ -178,4 +180,4 @@ class Table(object):
         for row in outdata:
             print self.fmt % row
         self.print_bar()
-        print "%d rows returned" % len(outdata)
+        print "%d rows in set (%0.3f sec)" % (len(outdata), (time.time() - self.start))

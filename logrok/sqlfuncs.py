@@ -1,9 +1,35 @@
 import ast
+try:
+    from itertools import chain as flatten
+except:
+    def flatten(l):
+        r = []
+        for i in l:
+            r += i
+        return r
 
 import parallel
 import screen
 
 __funcs__ = ['avg', ]
+
+def do(stmt, data):
+    global  __wholetable
+    __wholetable = False # reset
+
+    d = data
+    if stmt.where:
+        d = where(stmt.where, d)
+    if stmt.groupby:
+        groups = groupby(stmt.groupby, d)
+        resp = []
+        for group in groups:
+            resp.append(fields(stmt.fields, group))
+        d = flatten(resp)
+    else:
+        d = fields(stmt.fields, d)
+
+    return d
 
 def where(where, data):
     """
