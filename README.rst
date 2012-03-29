@@ -7,7 +7,7 @@ standard Apache LogFormat strings to describe the format of the logdata and it c
 LoGrok uses python's multiprocessing package to take full advantage of all of your CPUs ensuring the fastest parse and
 query time possible.
 
-Requires Python2 2.7 or higher
+Requires Python2 2.7 or higher and the ply_ module
 
 =====
 Usage
@@ -97,3 +97,4 @@ LoGrok is licensed under the MIT license. [#]_
 .. [#] See the file LICENSE_
 
 .. _LICENSE: http://github.com/spuriousdata/logrok/blob/master/LICENSE
+.. _ply: http://www.dabeaz.com/ply/
