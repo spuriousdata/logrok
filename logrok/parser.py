@@ -39,12 +39,7 @@ def p_fields(p):
     _keys = []
     _values = []
     for f in fields:
-        if type(f) == ast.Name:
-            _keys.append(ast.Str(f.id))
-        elif type(f) == ast.Call:
-            _keys.append(ast.Str("%s(%s)" % (f.func.id, ','.join([n.s for n in f.args[1:]]))))
-        else:
-            _keys.append(f)
+        _keys.append(ast.Str(__get_fieldname(f)))
         _values.append(f)
     p[0] = ast.Expression(ast.Dict(_keys, _values))
 
@@ -230,4 +225,17 @@ def init():
 
 def parse(sql):
     return _parser.parse(sql, lexer=_lexer, debug=DEBUG)
+
+def __get_fieldname(f):
+    if type(f) == ast.Name:
+        return f.id
+    elif type(f) == ast.Call:
+        return "%s(%s)" % (f.func.id, ','.join([__get_fieldname(n) for n in f.args[1:]]))
+    elif type(f) == ast.Str:
+        return f.s
+    elif type(f) == ast.Num:
+        return "%d" % f.n
+    else:
+        return str(f)
+
 
