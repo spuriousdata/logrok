@@ -9,6 +9,10 @@ query time possible.
 
 Requires Python2 2.7 or higher and the ply_ module
 
+The ply_ module is available from pypi.python.org_ you can install it with ``easy_install`` or ``pip``
+
+``easy_install ply`` or ``pip install ply``
+
 =====
 Usage
 =====
@@ -98,3 +102,4 @@ LoGrok is licensed under the MIT license. [#]_
 
 .. _LICENSE: http://github.com/spuriousdata/logrok/blob/master/LICENSE
 .. _ply: http://www.dabeaz.com/ply/
+.. _pypi.python.org: http://pypi.python.org
