@@ -95,7 +95,6 @@ class LoGrok(object):
             logfile.close()
             screen.print_mutable("", True)
 
-
         log_regex = re.compile(parse_format_string(logformat))
         if self.args.lines:
             lines = lines[:self.args.lines]
@@ -176,6 +175,8 @@ def main():
     typ = cmd.add_mutually_exclusive_group(required=True)
     typ.add_argument('-t', '--type', metavar='TYPE', choices=TYPES, help='{%s} Use built-in log type (default: apache-common)'%', '.join(TYPES), default='apache-common')
     typ.add_argument('-f', '--format', action='store', help='Log format (use apache LogFormat string)')
+    typ.add_argument('-C', '--config', type=argparse.FileType('r'), help='httpd.conf file in which to find LogFormat string (requires -T)')
+    cmd.add_argument('-T', '--ctype',  help='type-name for LogFormat from specified httpd.conf file (only works with -c)')
     cmd.add_argument('-j', '--processes', action='store', type=int, help='Number of processes to fork for log crunching (default: smart)', default=parallel.SMART)
     cmd.add_argument('-l', '--lines', action='store', type=int, help='Only process LINES lines of input')
     interactive = cmd.add_mutually_exclusive_group(required=False)
@@ -185,6 +186,22 @@ def main():
     cmd.add_argument('-d', '--debug', action='store_true', help="Turn debugging on (you don't want this)")
     cmd.add_argument('logfile', nargs='+', type=argparse.FileType('r'), help="log(s) to parse/query")
     args = cmd.parse_args(sys.argv[1:])
+
+    if args.config and not args.ctype:
+        cmd.error("-C/--config option requires -T/--ctype option")
+    if args.ctype and not args.config:
+        cmd.error("-T/--ctype only works with -C/--config option")
+
+    if args.config and args.ctype:
+        config = args.config.read()
+        args.config.close()
+        m = re.search(r'^logformat[\s]+(.*)[\s]+%s' % args.ctype, config, re.I|re.M)
+        if m is None:
+            cmd.error("LogFormat %s not found in %s" % (args.ctype, args.config.name))
+        format = m.group(1)
+        if (format.startswith("'") or format.startswith('"')) and (format.endswith("'") or format.endswith('"')):
+            format = format[1:-1]
+        args.format = format.replace(r"\'", "'").replace(r'\"', '"')
 
     global DEBUG
     DEBUG = args.debug
