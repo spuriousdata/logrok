@@ -1,19 +1,35 @@
 import ast
-from collections import namedtuple
 
 from ply import yacc
 
 from util import sqlerror
 import lexer
 
-
 DEBUG = False
 tokens = lexer.tokens
 
-Statement   = namedtuple('Statement',   ['fields', 'frm', 'where', 'groupby', 'orderby', 'limit'])
-GroupBy     = namedtuple('GroupBy',     ['fields'])
-OrderBy     = namedtuple('OrderBy',     ['fields', 'direction'])
-Limit       = namedtuple('Limit',       ['value'])
+class Statement(object):
+    def __init__(self, fields, frm, where, groupby, orderby, limit):
+        self.fields = fields
+        self.frm = frm
+        self.where = where
+        self.groupby = groupby
+        self.orderby = orderby
+        self.limit = limit
+
+class GroupBy(object):
+    def __init__(self, fields):
+        self.fields = fields
+
+class OrderBy(GroupBy):
+    def __init__(self, fields, direction):
+        super(OrderBy).__init__(self, fields)
+        self.direction = direction
+
+class Limit(object):
+    def __init__(self, start, count):
+        self.start = start
+        self.count = count
 
 precedence = (
         ('left', 'OPERATOR'),
