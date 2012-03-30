@@ -177,8 +177,8 @@ class Table(object):
         self.print_bar()
         print self.fmt % headers
         self.print_bar()
-        #for row in outdata:
-        #    print self.fmt % row
+        for row in outdata:
+            print self.fmt % row
         self.print_bar()
         print "%d rows in set (%0.3f sec)" % (len(outdata), (time.time() - self.start))
 

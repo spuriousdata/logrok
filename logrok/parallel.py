@@ -7,7 +7,6 @@ from util import ChunkableList
 DEBUG=False
 SMART=-1
 numprocs=SMART
-_procs = []
 
 def map(f):
     @wraps(f)
@@ -43,19 +42,35 @@ class Job(object):
         self.processed_rows = 0
         self.pct_complete = 0
 
+    def __del__(self):
+        del self.in_queue
+        del self.out_queue
+
 def run(func, data, name="<main>", chunksize=SMART, numprocs=numprocs, wait=True, _print=False, **kwargs):
+    l = len(data)
+    if l < cpu_count():
+        c = l
+    else:
+        c = l/cpu_count()
     if chunksize == SMART:
-        chunksize = min(10000, len(data)/cpu_count())
+        chunksize = min(10000, c)
         
     if numprocs == SMART:
-        numprocs = min(int(cpu_count()*1.5), len(data)/chunksize)
+        if l < 1000:
+            c = 1
+        else:
+            c = l/chunksize
+        numprocs = min(int(cpu_count()*1.5), c)
 
     job = Job(len(data), name)
     _run(func, job, numprocs, _print, **kwargs)
     _enqueue_data(data, chunksize, job)
     if not wait:
         return job
-    return _wait(job, _print)
+    resp = _wait(job, _print)
+    killall(job)
+    del job
+    return resp
 
 def _wait(job, _print):
     data = []
@@ -108,9 +123,9 @@ def _run(func, job, numprocs, _print, **kwargs):
         kwargs['outq'] = job.out_queue
         proc = Process(target=func, kwargs=kwargs)
         proc.start()
-        _procs.append(proc)
         job.processes.append(proc)
 
-def killall():
-    for p in _procs:
+def killall(job):
+    for p in job.processes:
         p.terminate()
+    del job.processes[:]

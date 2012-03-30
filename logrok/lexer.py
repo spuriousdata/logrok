@@ -8,10 +8,6 @@ DEBUG = False
 
 _keywords = {
     'select':'SELECT',
-    #'avg':'F_AVG',
-    #'max':'F_MAX',
-    #'min':'F_MIN',
-    #'count':'F_COUNT',
     'from':'FROM',
     'where':'WHERE',
     'between':'BETWEEN',
@@ -39,10 +35,15 @@ tokens = [
 
 t_ignore = ' '
 
-t_STAR      = r'\*'
 t_LPAREN    = r'\('
 t_RPAREN    = r'\)'
 t_COMMA     = r','
+
+
+def t_STAR(t):
+    r'\*'
+    t.value = ast.Name('__line__', ast.Load())
+    return t
 
 def t_OPERATOR(t):
     r'=|<>|<|>|<=|>='

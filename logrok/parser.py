@@ -17,20 +17,6 @@ class Statement(object):
         self.orderby = orderby
         self.limit = limit
 
-class GroupBy(object):
-    def __init__(self, fields):
-        self.fields = fields
-
-class OrderBy(GroupBy):
-    def __init__(self, fields, direction):
-        super(OrderBy).__init__(self, fields)
-        self.direction = direction
-
-class Limit(object):
-    def __init__(self, start, count):
-        self.start = start
-        self.count = count
-
 precedence = (
         ('left', 'OPERATOR'),
     )
@@ -191,10 +177,10 @@ def p_group(p):
             fields = [p[3]]
         else:
             fields = [p[3]] + p[4]
-    names = []
-    for f in fields:
-        names.append(f.id)
-    p[0] = names
+        names = []
+        for f in fields:
+            names.append(f.id)
+        p[0] = names
 
 def p_order(p):
     '''order :
@@ -204,7 +190,10 @@ def p_order(p):
             fields = [p[3]] + p[4]
         else:
             fields = [p[3]]
-        p[0] = OrderBy(list_to_ast_dict(fields), p[5])
+        names = []
+        for f in fields:
+            names.append(f.id)
+        p[0] = (names, p[5])
 
 def p_direction(p):
     '''direction :
@@ -230,9 +219,9 @@ def p_limit(p):
              | LIMIT INTEGER COMMA INTEGER'''
     if len(p) > 1:
         if len(p) == 3:
-            p[0] = Limit(p[2])
+            p[0] = (0, p[2])
         else:
-            p[0] = Limit(p[2], p[4])
+            p[0] = p[2], p[4]
 
 _parser = None
 _lexer = None
