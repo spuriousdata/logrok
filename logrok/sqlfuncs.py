@@ -10,6 +10,8 @@ except:
 
 import parallel
 import screen
+import util
+
 
 __funcs__ = ['avg', 'count', 'max', 'int', 'us_to_ms', 'ms_to_s', 'min']
 __wholetable = False
@@ -23,6 +25,7 @@ def do(stmt, data):
         d = where(stmt.where, d)
     if stmt.groupby:
         groups = groupby(stmt.groupby, d)
+        return groups
         resp = []
         for group in groups:
             resp.append(fields(stmt.fields, group))
@@ -52,6 +55,16 @@ def _where(chunk, syntree):
         if eval(code):
             res.append(line)
     return res
+
+def groupby(fields, data):
+    return orderby(fields, data)
+
+def orderby(fields, data):
+    buckets = util.radish_sort(fields[0], data)
+    newdata = []
+    for b in buckets.values():
+        newdata += sorted(b, key=lambda x: x[fields[0]])
+    return newdata
 
 def fields(fields, __data__):
     """
@@ -123,3 +136,6 @@ def us_to_ms(data, i):
 
 def ms_to_s(data, i):
     return i/1000.0
+
+def micro_s_to_s(data, i):
+    return i/1000000.0
