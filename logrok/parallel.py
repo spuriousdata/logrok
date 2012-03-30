@@ -7,6 +7,7 @@ from util import ChunkableList
 DEBUG=False
 SMART=-1
 numprocs=SMART
+_procs = []
 
 def map(f):
     @wraps(f)
@@ -99,6 +100,7 @@ def _enqueue_data(data, chunksize, job):
         job.in_queue.put('ITER_STOP')
 
 def _run(func, job, numprocs, _print, **kwargs):
+    global _procs
     if DEBUG or _print:
         screen.print_line("Spawning %d processes to crunch data for %s." % (numprocs, job.name))
     for i in xrange(0, numprocs+1):
@@ -106,4 +108,9 @@ def _run(func, job, numprocs, _print, **kwargs):
         kwargs['outq'] = job.out_queue
         proc = Process(target=func, kwargs=kwargs)
         proc.start()
+        _procs.append(proc)
         job.processes.append(proc)
+
+def killall():
+    for p in _procs:
+        p.terminate()
