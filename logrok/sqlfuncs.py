@@ -1,15 +1,15 @@
 import ast
-try:
-    from itertools import chain as flatten
-except:
-    def flatten(l):
-        r = []
-        for i in l:
-            r += i
-        return r
-
+from itertools import groupby as _groupby
 import parallel
 import screen
+import util
+
+def flatten(l):
+    r = []
+    for i in l:
+        r += i
+    return r
+
 
 __funcs__ = ['avg', 'count', 'max', 'int', 'us_to_ms', 'ms_to_s', 'min']
 __wholetable = False
@@ -22,13 +22,23 @@ def do(stmt, data):
     if stmt.where:
         d = where(stmt.where, d)
     if stmt.groupby:
-        groups = groupby(stmt.groupby, d)
+        groups = []
+        for k, g in _groupby(groupby(stmt.groupby, d), lambda x: x[stmt.groupby[0]]):
+            groups.append(list(g))
         resp = []
         for group in groups:
             resp.append(fields(stmt.fields, group))
         d = flatten(resp)
     else:
         d = fields(stmt.fields, d)
+    if stmt.orderby:
+        if stmt.orderby[1] == 'desc':
+            d = reversed(orderby(stmt.orderby[0], d))
+        else:
+            d = orderby(stmt.orderby[0], d)
+    if stmt.limit:
+        l = stmt.limit
+        d = d[l[0]:l[0]+l[1]]
 
     return d
 
@@ -53,33 +63,40 @@ def _where(chunk, syntree):
             res.append(line)
     return res
 
+def groupby(fields, data):
+    return orderby(fields, data)
+
+def orderby(fields, data):
+    newdata = []
+    f = fields[0]
+    buckets = util.radish_sort(f, data)
+    for b in buckets.values():
+        newdata += sorted(b, key=lambda x: x[f])
+    try:
+        return orderby(fields[1:], newdata)
+    except IndexError:
+        return newdata
+
 def fields(fields, __data__):
     """
     Compile fields ast into executable code and run 
     a parallel 'filter' on the data with it
     """
-    global __wholetable
-    __wholetable = True
     if fields is None:
         raise SyntaxError("What fields are you selecting?")
     ast.fix_missing_locations(fields)
     code = compile(fields, '', 'eval')
     resp = []
-    for line in __data__:
-        for k in line.keys():
-            locals()[k] = line[k]
+    for __line__ in __data__:
+        for k in __line__.keys():
+            locals()[k] = __line__[k]
         newrow = eval(code)
+        if newrow.has_key('__line__'):
+            newrow = newrow['__line__']
         resp.append(newrow)
         if __wholetable:
             break
     return resp
-
-@parallel.map
-def _fields(chunk, fields):
-    _fields = []
-    _funcs = []
-    code = compile(syntree, '', 'eval')
-    res = []
 
 def count(data):
     global __wholetable
@@ -96,7 +113,8 @@ def avg(data, column):
     vals = [row[column] for row in data]
     data = parallel.run(parallel.map(
         lambda chunk: [(sum([int(line) for line in chunk]), len(chunk))]), 
-        vals
+        vals,
+        'avg()'
     )
     dividend = parallel.run(parallel.reduce(lambda data: sum([d[0] for d in data], 0.0)), data)
     divisor  = parallel.run(parallel.reduce(lambda data: sum([d[1] for d in data])), data)
@@ -123,3 +141,6 @@ def us_to_ms(data, i):
 
 def ms_to_s(data, i):
     return i/1000.0
+
+def micro_s_to_s(data, i):
+    return i/1000000.0

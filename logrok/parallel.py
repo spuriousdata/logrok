@@ -42,19 +42,35 @@ class Job(object):
         self.processed_rows = 0
         self.pct_complete = 0
 
+    def __del__(self):
+        del self.in_queue
+        del self.out_queue
+
 def run(func, data, name="<main>", chunksize=SMART, numprocs=numprocs, wait=True, _print=False, **kwargs):
+    l = len(data)
+    if l < cpu_count():
+        c = l
+    else:
+        c = l/cpu_count()
     if chunksize == SMART:
-        chunksize = min(10000, len(data)/cpu_count())
+        chunksize = min(10000, c)
         
     if numprocs == SMART:
-        numprocs = min(int(cpu_count()*1.5), len(data)/chunksize)
+        if l < 1000:
+            c = 1
+        else:
+            c = l/chunksize
+        numprocs = min(int(cpu_count()*1.5), c)
 
     job = Job(len(data), name)
     _run(func, job, numprocs, _print, **kwargs)
     _enqueue_data(data, chunksize, job)
     if not wait:
         return job
-    return _wait(job, _print)
+    resp = _wait(job, _print)
+    killall(job)
+    del job
+    return resp
 
 def _wait(job, _print):
     data = []
@@ -99,6 +115,7 @@ def _enqueue_data(data, chunksize, job):
         job.in_queue.put('ITER_STOP')
 
 def _run(func, job, numprocs, _print, **kwargs):
+    global _procs
     if DEBUG or _print:
         screen.print_line("Spawning %d processes to crunch data for %s." % (numprocs, job.name))
     for i in xrange(0, numprocs+1):
@@ -107,3 +124,8 @@ def _run(func, job, numprocs, _print, **kwargs):
         proc = Process(target=func, kwargs=kwargs)
         proc.start()
         job.processes.append(proc)
+
+def killall(job):
+    for p in job.processes:
+        p.terminate()
+    del job.processes[:]

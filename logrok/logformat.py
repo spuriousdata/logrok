@@ -1,5 +1,6 @@
 import re
-from functools import partial
+import time
+from functools import partial, wraps
 
 TYPES = {
     'apache-common': "%h %l %u %t \"%r\" %>s %b",
@@ -9,6 +10,24 @@ TYPES = {
     'agent': "%{User-agent}i",
     'syslog': "%{%b %d %H:%M:%S}t %h %v[%P]: %M",
 }
+
+types = {}
+
+def settype(name, f):
+    global types
+    types[name] = f
+
+def reverse_partial(f, *args):
+    """
+    Behaves just like functools.partial() except that
+    args passed in are _appended_ rather than _prepended_
+    to the target functions arg list
+    """
+    @wraps(f)
+    def wrapper(*a, **k):
+        _a = tuple(list(a) + list(args))
+        return f(*_a, **k)
+    return wrapper
 
 class Regex(object):
     @staticmethod
@@ -21,19 +40,23 @@ class Regex(object):
 
     @staticmethod
     def host(name='', nocapture=False):
+        settype(name, str)
         return Regex.r(r'[a-zA-Z0-9\-\.]+', name, nocapture)
 
     @staticmethod
     def number(name='', nocapture=False):
+        settype(name, int)
         return Regex.r(r'\d+', name, nocapture)
 
     @staticmethod
     def string(name='', nocapture=False):
+        settype(name, str)
         return Regex.r(r'[^\s]+', name, nocapture)
 
     @staticmethod
     def commontime(name='', nocapture=False):
         if name is not '':
+            settype(name, reverse_partial(time.strptime, "%d/%b/%Y:%H:%M:%S"))
             name = r'?P<%s>' % name
         if nocapture:
             return r'\[[^\]]+]'
@@ -41,13 +64,16 @@ class Regex(object):
 
     @staticmethod
     def nil(name='', nocapture=False):
+        settype(name, str)
         return Regex.r(r'-', name, nocapture)
 
     @staticmethod
     def cstatus(name='', nocapture=False):
+        settype(name, str)
         return Regex.r(r'X|\+|\-', name, nocapture)
 
     def any(name='', nocapture=False):
+        settype(name, str)
         return Regex.r(r'.*', name, nocapture)
 
     @staticmethod
@@ -60,6 +86,7 @@ class Regex(object):
     def dstring(start, negmatch, end, name='', nocapture=False):
         """ grab all not-negmatch chars, but allow for backslash-escaped negmatch """
         if name is not '':
+            settype(name, str)
             name = r'?P<%s>' % name
         if nocapture:
             return r'%s[^%s\\]*(?:\\.[^%s\\]*)*%s' % (start, negmatch, negmatch, end)
@@ -88,7 +115,7 @@ FORMAT = {
     'r': (Regex.string, "request"),
     's': (Regex.number, "status_code"),
     't': (Regex.commontime, "date_time"),
-    'T': (Regex.number, "response_time_s_"),
+    'T': (Regex.number, "response_time_s"),
     'u': (Regex.string, "auth_user"),
     'U': (Regex.string, "url"),
     'v': (Regex.host, "server_name"),

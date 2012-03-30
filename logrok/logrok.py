@@ -24,7 +24,7 @@ import parser
 import parallel
 import screen
 import sqlfuncs
-from logformat import TYPES
+import logformat
 from util import NoTokenError, parse_format_string, Complete, Table, pretty_print
 
 DEBUG = False
@@ -44,11 +44,12 @@ class LogQuery(object):
             return
         if DEBUG:
             # pretty-printer
-            import ast
-            sq = "Statement(fields=" + ast.dump(self.ast.fields) + ", frm=xx, where=" + ast.dump(self.ast.where) + ")"
-            pretty_print(sq)
-            print sq
-            print '-'*screen.width
+            #import ast
+            #sq = "Statement(fields=" + ast.dump(self.ast.fields) + ", frm=xx, where=" + ast.dump(self.ast.where) + ")"
+            #pretty_print(sq)
+            #print sq
+            #print '-'*screen.width
+            pass
     
     def run(self):
         start_time = time.time()
@@ -59,8 +60,6 @@ class LogQuery(object):
                 if not response.has_key(key):
                     response[key] = []
                 response[key].append(row[key])
-
-        #response[item] = [row[item] for row in op_data for item in ('date_time', 'response_time_us', 'x_ausername')]
         Table(response, start_time).prnt()
 
 class LoGrok(object):
@@ -84,7 +83,7 @@ class LoGrok(object):
         if self.args.format is not None:
             logformat = self.args.format
         else:
-            logformat = TYPES[self.args.type]
+            logformat = logformat.TYPES[self.args.type]
 
         print
         lines = []
@@ -98,7 +97,10 @@ class LoGrok(object):
         log_regex = re.compile(parse_format_string(logformat))
         if self.args.lines:
             lines = lines[:self.args.lines]
+        st = time.time()
         self.data = parallel.run(log_match, lines, _print=True)
+        et = time.time()
+        print "%d lines crunched in %0.3f seconds" % (len(lines), (et-st))
 
     def interact(self):
         if screen.is_curses():
@@ -166,14 +168,26 @@ def log_match(chunk):
         out = {}
         m = log_regex.match(line)
         for key in log_regex.groupindex:
-            out[key] = m.group(key)
+            if logformat.types.has_key(key):
+                f = logformat.types[key]
+            else:
+                f = str
+            # XXX
+            # This is a hack a big big hack
+            #  It's here because I discovered that converting the date
+            #  strings into date objects using strptime is a HUGE performance hit!
+            # -- don't know what to do about that
+            if f not in (int, str):
+                f = str
+            d = m.group(key)
+            out[key] = f(d)
         response.append(out)
     return response
 
 def main():
     cmd = argparse.ArgumentParser(description="Grok/Query/Aggregate log files. Requires python2 >= 2.7")
     typ = cmd.add_mutually_exclusive_group(required=True)
-    typ.add_argument('-t', '--type', metavar='TYPE', choices=TYPES, help='{%s} Use built-in log type (default: apache-common)'%', '.join(TYPES), default='apache-common')
+    typ.add_argument('-t', '--type', metavar='TYPE', choices=logformat.TYPES, help='{%s} Use built-in log type (default: apache-common)'%', '.join(logformat.TYPES), default='apache-common')
     typ.add_argument('-f', '--format', action='store', help='Log format (use apache LogFormat string)')
     typ.add_argument('-C', '--config', type=argparse.FileType('r'), help='httpd.conf file in which to find LogFormat string (requires -T)')
     cmd.add_argument('-T', '--ctype',  help='type-name for LogFormat from specified httpd.conf file (only works with -c)')
@@ -218,7 +232,7 @@ if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        # TODO -- kill multiprocesses
+        parallel.killall()
         # TODO -- reset terminal if curses
         print
         sys.exit(1)

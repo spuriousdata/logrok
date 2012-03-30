@@ -1,19 +1,21 @@
 import ast
-from collections import namedtuple
 
 from ply import yacc
 
 from util import sqlerror
 import lexer
 
-
 DEBUG = False
 tokens = lexer.tokens
 
-Statement   = namedtuple('Statement',   ['fields', 'frm', 'where', 'groupby', 'orderby', 'limit'])
-GroupBy     = namedtuple('GroupBy',     ['fields'])
-OrderBy     = namedtuple('OrderBy',     ['fields', 'direction'])
-Limit       = namedtuple('Limit',       ['value'])
+class Statement(object):
+    def __init__(self, fields, frm, where, groupby, orderby, limit):
+        self.fields = fields
+        self.frm = frm
+        self.where = where
+        self.groupby = groupby
+        self.orderby = orderby
+        self.limit = limit
 
 precedence = (
         ('left', 'OPERATOR'),
@@ -36,12 +38,7 @@ def p_fields(p):
         fields = p[1] + p[2]
     else:
         fields = p[1]
-    _keys = []
-    _values = []
-    for f in fields:
-        _keys.append(ast.Str(__get_fieldname(f)))
-        _values.append(f)
-    p[0] = ast.Expression(ast.Dict(_keys, _values))
+    p[0] = list_to_ast_dict(fields)
 
 def p_field(p):
     '''field : STAR
@@ -177,9 +174,13 @@ def p_group(p):
              | GROUP BY IDENTIFIER identlist'''
     if len(p) > 1:
         if p[4] is None:
-            p[0] = GroupBy([p[3]])
+            fields = [p[3]]
         else:
-            p[0] = GroupBy([p[3]] + p[4])
+            fields = [p[3]] + p[4]
+        names = []
+        for f in fields:
+            names.append(f.id)
+        p[0] = names
 
 def p_order(p):
     '''order :
@@ -189,7 +190,10 @@ def p_order(p):
             fields = [p[3]] + p[4]
         else:
             fields = [p[3]]
-        p[0] = OrderBy(fields, p[5])
+        names = []
+        for f in fields:
+            names.append(f.id)
+        p[0] = (names, p[5])
 
 def p_direction(p):
     '''direction :
@@ -211,9 +215,13 @@ def p_identlist(p):
 
 def p_limit(p):
     '''limit :
-             | LIMIT INTEGER'''
+             | LIMIT INTEGER
+             | LIMIT INTEGER COMMA INTEGER'''
     if len(p) > 1:
-        p[0] = Limit(p[2])
+        if len(p) == 3:
+            p[0] = (0, p[2])
+        else:
+            p[0] = p[2], p[4]
 
 _parser = None
 _lexer = None
@@ -238,4 +246,10 @@ def __get_fieldname(f):
     else:
         return str(f)
 
-
+def list_to_ast_dict(fields):
+    _keys = []
+    _values = []
+    for f in fields:
+        _keys.append(ast.Str(__get_fieldname(f)))
+        _values.append(f)
+    return ast.Expression(ast.Dict(_keys, _values))

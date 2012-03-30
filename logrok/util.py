@@ -181,3 +181,24 @@ class Table(object):
             print self.fmt % row
         self.print_bar()
         print "%d rows in set (%0.3f sec)" % (len(outdata), (time.time() - self.start))
+
+class CantRadishSortException(Exception): pass
+
+def radish_sort(field, data):
+    """
+    sort of like a radix sort, except not
+    """
+    buckets = {}
+    for r in data:
+        item = r[field]
+        if type(item) == str and len(item):
+            f = item[0]
+        elif type(item) == int:
+            f = item % 10
+        else:
+            raise CantRadishSortException()
+        if not buckets.has_key(f):
+            buckets[f] = [r]
+        else:
+            buckets[f].append(r)
+    return buckets
