@@ -47,8 +47,8 @@ Queries
 Format
 ------
 
-show <fields|headers>
-[select] <fieldlist> [from xxx] <where <wherelist>>; [#]_
+* show <fields|headers>
+* [select] <fieldlist> [from xxx] <where <wherelist>> [group by <fieldlist>] [order by <fieldlist>]; 
 
 Helpers
 =======
@@ -90,6 +90,7 @@ Example Queries
 * select max(response_time_us), auth_user;
 * select date_time, auth_user, request from log where auth_user <> 'bob_smith';
 * select date_time, response_time_us where response_time_us > 5000000;
+* select avg(response_time_us), auth_user group by auth_user;
 
 =======
 License
@@ -97,7 +98,6 @@ License
 
 LoGrok is licensed under the MIT license. [#]_
 
-.. [#] ``GROUP BY`` and  ``ORDER BY`` are not yet supported
 .. [#] See the file LICENSE_
 
 .. _LICENSE: http://github.com/spuriousdata/logrok/blob/master/LICENSE
