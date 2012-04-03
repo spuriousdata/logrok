@@ -77,11 +77,11 @@ def groupby(fields, data):
     return orderby(fields, data, "<groupby>")
 
 def orderby(fields, data, name="<orderby>"):
-    print "starting sort for %s on %d lines" % (name, len(data))
+    #print "starting sort for %s on %d lines" % (name, len(data))
     s = time.time()
     f = fields[0]
-    newdata = util.radix_sort(data, f)
-    print "sort for %s ran in %0.3f seconds" % (name, time.time() - s)
+    newdata = sorted(data, key=lambda x: x[f])
+    #print "sort for %s ran in %0.3f seconds" % (name, time.time() - s)
     return newdata
 
 def fields(fields, __data__):
