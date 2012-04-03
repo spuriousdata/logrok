@@ -3,11 +3,6 @@
 """Query and aggregate data from log files using SQL-like syntax"""
 
 import sys
-
-if sys.version < '2.7':
-    print "%s requires python2 version 2.7 or higher" % sys.argv[0]
-    sys.exit(1)
-
 import argparse
 import os
 import re
@@ -112,7 +107,7 @@ class LoGrok(object):
         elif self.interactive:
             self.shell()
         else:
-            print self.query(self.args.query)
+            self.query(self.args.query)
 
     def shell(self):
         try:
