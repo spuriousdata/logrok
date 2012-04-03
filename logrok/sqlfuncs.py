@@ -3,6 +3,7 @@ from itertools import groupby as _groupby
 import parallel
 import screen
 import util
+import time
 
 def flatten(l):
     r = []
@@ -11,12 +12,20 @@ def flatten(l):
     return r
 
 
-__funcs__ = ['avg', 'count', 'max', 'int', 'us_to_ms', 'ms_to_s', 'min']
+__funcs__ = ['avg', 'count', 'max', 'int', 'us_to_ms', 'ms_to_s', 'micro_s_to_s', 'min']
 __wholetable = False
 
+import os
+utilmtime = 0
 def do(stmt, data):
     global  __wholetable
     __wholetable = False # reset
+
+    global utilmtime
+    s = os.stat("/home/omalleym/Dev/logrok/logrok/util.py")
+    if s.st_mtime != utilmtime:
+        utilmtime = s.st_mtime
+        reload(util)
 
     d = data
     if stmt.where:
@@ -37,6 +46,7 @@ def do(stmt, data):
         else:
             d = orderby(stmt.orderby[0], d)
     if stmt.limit:
+        import pdb; pdb.set_trace() 
         l = stmt.limit
         d = d[l[0]:l[0]+l[1]]
 
@@ -64,18 +74,15 @@ def _where(chunk, syntree):
     return res
 
 def groupby(fields, data):
-    return orderby(fields, data)
+    return orderby(fields, data, "<groupby>")
 
-def orderby(fields, data):
-    newdata = []
+def orderby(fields, data, name="<orderby>"):
+    #print "starting sort for %s on %d lines" % (name, len(data))
+    s = time.time()
     f = fields[0]
-    buckets = util.radish_sort(f, data)
-    for b in buckets.values():
-        newdata += sorted(b, key=lambda x: x[f])
-    try:
-        return orderby(fields[1:], newdata)
-    except IndexError:
-        return newdata
+    newdata = sorted(data, key=lambda x: x[f])
+    #print "sort for %s ran in %0.3f seconds" % (name, time.time() - s)
+    return newdata
 
 def fields(fields, __data__):
     """
@@ -98,7 +105,7 @@ def fields(fields, __data__):
             break
     return resp
 
-def count(data):
+def count(data, i):
     global __wholetable
     __wholetable = True
     return len(data)

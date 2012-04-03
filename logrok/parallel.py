@@ -46,7 +46,7 @@ class Job(object):
         del self.in_queue
         del self.out_queue
 
-def run(func, data, name="<main>", chunksize=SMART, numprocs=numprocs, wait=True, _print=False, **kwargs):
+def run(func, data, name="<main>", chunksize=SMART, numprocs=numprocs, _wait=True, _print=False, **kwargs):
     l = len(data)
     if l < cpu_count():
         c = l
@@ -65,14 +65,12 @@ def run(func, data, name="<main>", chunksize=SMART, numprocs=numprocs, wait=True
     job = Job(len(data), name)
     _run(func, job, numprocs, _print, **kwargs)
     _enqueue_data(data, chunksize, job)
-    if not wait:
+    if not _wait:
         return job
-    resp = _wait(job, _print)
-    killall(job)
-    del job
+    resp = wait(job, _print)
     return resp
 
-def _wait(job, _print):
+def wait(job, _print):
     data = []
     while True:
         if _check_running(job):
@@ -82,6 +80,8 @@ def _wait(job, _print):
     data += _get_data(job, _print)
     if DEBUG or _print:
         screen.print_mutable("", True)
+    killall(job)
+    del job
     return data
 
 def _get_data(job, _print):
