@@ -45,8 +45,15 @@ def p_field(p):
              | IDENTIFIER
              | INTEGER
              | STRING
-             | function'''
-    p[0] = [p[1]]
+             | function
+             | field AS IDENTIFIER'''
+    if len(p) == 2:
+        p[0] = [p[1]]
+    else:
+        # foo AS bar
+        # p[1] is already a 'field', which means that it's a 1-item list,
+        # so we'll extract it below (p[1][0])
+        p[0] = [(p[1][0], p[3])]
 
 def p_fieldlist(p):
     '''fieldlist :
@@ -73,11 +80,6 @@ def p_function(p):
 
 def p_fname(p):
     'fname : IDENTIFIER'
-    #'''fname : F_AVG
-    #         | F_MAX
-    #         | F_MIN
-    #         | F_COUNT'''
-    #p[0] = ast.Name(p[1], ast.Load())
     p[0] = p[1]
 
 def p_from(p):
@@ -219,9 +221,9 @@ def p_limit(p):
              | LIMIT INTEGER COMMA INTEGER'''
     if len(p) > 1:
         if len(p) == 3:
-            p[0] = (0, p[2])
+            p[0] = (0, int(p[2].n))
         else:
-            p[0] = p[2], p[4]
+            p[0] = (int(p[2].n), int(p[4].n))
 
 _parser = None
 _lexer = None
@@ -250,6 +252,11 @@ def list_to_ast_dict(fields):
     _keys = []
     _values = []
     for f in fields:
-        _keys.append(ast.Str(__get_fieldname(f)))
-        _values.append(f)
+        if type(f) == tuple:
+            # this is an 'as' field (foo as bar)
+            _keys.append(ast.Str(__get_fieldname(f[1])))
+            _values.append(f[0])
+        else:
+            _keys.append(ast.Str(__get_fieldname(f)))
+            _values.append(f)
     return ast.Expression(ast.Dict(_keys, _values))
