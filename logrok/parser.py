@@ -260,7 +260,7 @@ def __get_fieldname(f):
     elif type(f) == ast.Str:
         return f.s
     elif type(f) == ast.Num:
-        return "%d" % f.n
+        return str(f.n)
     else:
         return str(f)
 
@@ -275,4 +275,11 @@ def list_to_ast_dict(fields):
         else:
             _keys.append(ast.Str(__get_fieldname(f)))
             _values.append(f)
-    return ast.Expression(ast.Dict(_keys, _values))
+    tpls = map(lambda x: ast.Tuple(list(x), ast.Load()), zip(_keys, _values))
+    return ast.Expression(
+            ast.Call(
+                ast.Name('OrderedDict', ast.Load()),
+                [ast.List(tpls, ast.Load())],
+                [], None, None
+            )
+           )

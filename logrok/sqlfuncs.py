@@ -4,6 +4,11 @@ import parallel
 import screen
 import util
 import time
+try:
+    from collections import OrderedDict
+except ImportError:
+    # python < 2.7 compatability
+    from compat.OrderedDict import OrderedDict
 
 def flatten(l):
     r = []
