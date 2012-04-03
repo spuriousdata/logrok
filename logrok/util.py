@@ -182,23 +182,54 @@ class Table(object):
         self.print_bar()
         print "%d rows in set (%0.3f sec)" % (len(outdata), (time.time() - self.start))
 
-class CantRadishSortException(Exception): pass
+def radix_sort(a, k):
+    """
+    fast radix sort
 
-def radish_sort(field, data):
+    see http://htmltolatex.sourceforge.net/samples/sample4.html
+
+    a: data list
+    k: key to sorty by
     """
-    sort of like a radix sort, except not
-    """
-    buckets = {}
-    for r in data:
-        item = r[field]
-        if type(item) == str and len(item):
-            f = item[0]
-        elif type(item) == int:
-            f = item % 10
-        else:
-            raise CantRadishSortException()
-        if not buckets.has_key(f):
-            buckets[f] = [r]
-        else:
-            buckets[f].append(r)
-    return buckets
+    ml = _max_field_len(a, k)
+    if type(a[0][k]) == str:
+        base = 32
+        n = 126-base
+    elif type(a[0][k]) == int:
+        n = 10
+    for x in xrange(ml):
+        buckets = [[] for i in xrange(n)]
+        for y in a:
+            cmp = y[k]
+            if type(cmp) == str:
+                #idx = ml - x - 1
+                try:
+                    c = cmp[idx]
+                    #buckets[(ord(c)/10**x)%n].append(y)
+                    buckets[ord(c)-base].append(y)
+                except IndexError:
+                    #c = '\0'
+                    #c = cmp[-1]
+                    buckets[n-1].append(y)
+            elif type(cmp) == float:
+                # Don't know how to deal with floats right now 
+                return sorted(a, key=lambda x: x[k])
+            else:
+                # cmp is int.
+                # TODO
+                # We'll have to figure something out about the dates
+                # maybe at parse time, we can convert them into YYYYMMDDhhmmss
+                # and then just compare them as integers -- have to measure the 
+                # performance hit -- strptime was HORRIBLE
+                buckets[(cmp/10**x)%n].append(y)
+        a = []
+        for s in buckets:
+            a.extend(s)
+    return a
+
+def _max_field_len(d, k):
+    mlen = 0
+    for i in d:
+        l = len(str(i[k]))
+        mlen = l if l > mlen else mlen
+    return mlen

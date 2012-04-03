@@ -14,6 +14,7 @@ _keywords = {
     'group':'GROUP',
     'order':'ORDER',
     'by' : 'BY',
+    'as' : 'AS',
     'limit':'LIMIT',
     'and':'AND',
     'or' : 'OR',
