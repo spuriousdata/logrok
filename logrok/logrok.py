@@ -16,7 +16,11 @@ import readline
 import atexit
 import time
 from multiprocessing import cpu_count
-from collections import OrderedDict
+try:
+    from collections import OrderedDict
+except ImportError:
+    # python < 2.7 compatability
+    from compat.OrderedDict import OrderedDict
 
 from ply import yacc
 
