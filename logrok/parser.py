@@ -17,6 +17,22 @@ class Statement(object):
         self.orderby = orderby
         self.limit = limit
 
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self):
+        s = "Statement(fields=%s, frm=%s, where=%s, groupby=%s, orderby=%s, limit=%s)"
+        f = ast.dump(self.fields) if self.fields else "None"
+        w = ast.dump(self.where) if self.where else "None"
+        return s % (
+                f,
+                self.frm,
+                w,
+                self.groupby,
+                self.orderby,
+                self.limit,
+        )
+
 precedence = (
         ('left', 'OPERATOR'),
     )

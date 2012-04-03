@@ -48,11 +48,10 @@ class LogQuery(object):
             return
         if DEBUG:
             # pretty-printer
-            #import ast
-            #sq = "Statement(fields=" + ast.dump(self.ast.fields) + ", frm=xx, where=" + ast.dump(self.ast.where) + ")"
-            #pretty_print(sq)
-            #print sq
-            #print '-'*screen.width
+            sq = str(self.ast)
+            pretty_print(sq)
+            print sq
+            print '-'*screen.width
             pass
     
     def run(self):
