@@ -181,3 +181,25 @@ class Table(object):
             print self.fmt % row
         self.print_bar()
         print "%d rows in set (%0.3f sec)" % (len(outdata), (time.time() - self.start))
+
+def reverse_partial(f, *args):
+    """
+    Behaves just like functools.partial() except that
+    args passed in are _appended_ rather than _prepended_
+    to the target functions arg list
+    """
+    @wraps(f)
+    def wrapper(*a, **k):
+        _a = tuple(list(a) + list(args))
+        return f(*_a, **k)
+    return wrapper
+
+
+months = { 'Jan':1,'Feb':2,'Mar':3,'Apr':4,'May':5,'Jun':6,
+        'Jul':7,'Aug':8,'Sep':9,'Oct':10,'Nov':11,'Dec':12 }
+def common_strptime(d):
+    return int("%s%s%s%s%s%s" % (d[7:11], months[d[3:6]], d[:2], d[12:14], d[15:17], d[18:20]))
+
+def strptime(fmt, datestring):
+    t = time.strptime(datestring, fmt)
+    return int("%d%d%d%d%d%d" % (t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec))

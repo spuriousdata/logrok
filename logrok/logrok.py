@@ -180,6 +180,7 @@ def log_match(chunk):
                 f = logformat.types[key]
             else:
                 f = str
+            """
             # XXX
             # This is a hack a big big hack
             #  It's here because I discovered that converting the date
@@ -187,6 +188,7 @@ def log_match(chunk):
             # -- don't know what to do about that
             if f not in (int, str):
                 f = str
+            """
             d = m.group(key)
             out[key] = f(d)
         response.append(out)
