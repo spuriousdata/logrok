@@ -1,5 +1,5 @@
 import ast
-from itertools import groupby as _groupby
+from itertools import groupby
 import parallel
 import screen
 import util
@@ -9,55 +9,44 @@ try:
 except ImportError:
     # python < 2.7 compatability
     from compat.OrderedDict import OrderedDict
+try:
+    from collections import Counter
+except ImportError:
+    # python < 2.7 compatability
+    from compat.Counder import Counter
 
-def flatten(l):
-    r = []
-    for i in l:
-        r += i
-    return r
+DEBUG = False
+__is_aggregate = False
 
-
-__funcs__ = ['avg', 'count', 'max', 'int', 'us_to_ms', 'ms_to_s', 'micro_s_to_s', 'min']
-__wholetable = False
-
-import os
-utilmtime = 0
 def do(stmt, data):
-    global  __wholetable
-    __wholetable = False # reset
-
-    global utilmtime
-    s = os.stat("/home/omalleym/Dev/logrok/logrok/util.py")
-    if s.st_mtime != utilmtime:
-        utilmtime = s.st_mtime
-        reload(util)
+    global  __is_aggregate
+    __is_aggregate = False # reset
 
     d = data
     if stmt.where:
-        d = where(stmt.where, d)
+        d = _where(stmt.where, d)
     if stmt.groupby:
         groups = []
-        for k, g in _groupby(groupby(stmt.groupby, d), lambda x: x[stmt.groupby[0]]):
+        for k, g in groupby(_groupby(stmt.groupby, d), lambda x: x[stmt.groupby[0]]):
             groups.append(list(g))
         resp = []
         for group in groups:
-            resp.append(fields(stmt.fields, group))
-        d = flatten(resp)
+            resp.append(_fields(stmt.fields, group))
+        d = _flatten(resp)
     else:
-        d = fields(stmt.fields, d)
+        d = _fields(stmt.fields, d)
     if stmt.orderby:
         if stmt.orderby[1] == 'desc':
-            d = reversed(orderby(stmt.orderby[0], d))
+            d = reversed(_orderby(stmt.orderby[0], d))
         else:
-            d = orderby(stmt.orderby[0], d)
+            d = _orderby(stmt.orderby[0], d)
     if stmt.limit:
-        import pdb; pdb.set_trace() 
         l = stmt.limit
         d = d[l[0]:l[0]+l[1]]
 
     return d
 
-def where(where, data):
+def _where(where, data):
     """
     Compile `where` ast into executable code and run 
     a parallel 'filter' on the data with it
@@ -65,10 +54,10 @@ def where(where, data):
     if where is None:
         return
     ast.fix_missing_locations(where)
-    return parallel.run(_where, data, "<where clause>", syntree=where)
+    return parallel.run(__where, data, "<where clause>", syntree=where)
 
 @parallel.map
-def _where(chunk, syntree):
+def __where(chunk, syntree):
     code = compile(syntree, '', 'eval')
     res = []
     for line in chunk:
@@ -78,18 +67,20 @@ def _where(chunk, syntree):
             res.append(line)
     return res
 
-def groupby(fields, data):
-    return orderby(fields, data, "<groupby>")
+def _groupby(fields, data):
+    return _orderby(fields, data, "<groupby>")
 
-def orderby(fields, data, name="<orderby>"):
-    #print "starting sort for %s on %d lines" % (name, len(data))
+def _orderby(fields, data, name="<orderby>"):
+    if DEBUG:
+        print "starting sort for %s on %d lines" % (name, len(data))
     s = time.time()
     f = fields[0]
     newdata = sorted(data, key=lambda x: x[f])
-    #print "sort for %s ran in %0.3f seconds" % (name, time.time() - s)
+    if DEBUG:
+        print "sort for %s ran in %0.3f seconds" % (name, time.time() - s)
     return newdata
 
-def fields(fields, __data__):
+def _fields(fields, __data__):
     """
     Compile fields ast into executable code and run 
     a parallel 'filter' on the data with it
@@ -106,22 +97,24 @@ def fields(fields, __data__):
         if newrow.has_key('__line__'):
             newrow = newrow['__line__']
         resp.append(newrow)
-        if __wholetable:
+        if __is_aggregate:
             break
     return resp
 
+def _flatten(l):
+    r = []
+    for i in l:
+        r += i
+    return r
+
 def count(data, i):
-    global __wholetable
-    __wholetable = True
+    global __is_aggregate
+    __is_aggregate = True
     return len(data)
 
-def int(data, i):
-    return __builtins__['int'](i)
-
 def avg(data, column):
-    global __wholetable
-    __wholetable = True
-    int = __builtins__['int']
+    global __is_aggregate
+    __is_aggregate = True
     vals = [row[column] for row in data]
     data = parallel.run(parallel.map(
         lambda chunk: [(sum([int(line) for line in chunk]), len(chunk))]), 
@@ -132,27 +125,45 @@ def avg(data, column):
     divisor  = parallel.run(parallel.reduce(lambda data: sum([d[1] for d in data])), data)
     return sum(dividend)/sum(divisor)
 
+def mean(data, column):
+    return avg(data, column)
+
+def median(data, column):
+    global __is_aggregate
+    __is_aggregate = True
+    d = sorted(data, key=lambda x: x[column])
+    if len(d) & 0x01:
+        return data[(len(d)-1)/2]
+    m = len(d)/2
+    a, b = data[m-1:m+1]
+    return (a[column]+b[column]/2)
+
+def mode(data, column, ind=0):
+    global __is_aggregate
+    __is_aggregate = True
+    ind = int(ind)
+    return Counter([x[column] for x in data]).most_common(ind+1)[ind][0]
+
 def max(data, column):
-    global __wholetable
-    __wholetable = True
+    global __is_aggregate
+    __is_aggregate = True
     max = __builtins__['max']
-    int = __builtins__['int']
     vals = [row[column] for row in data]
     return max(parallel.run(parallel.reduce(lambda chunk: max([int(i) for i in chunk])), vals))
 
 def min(data, column):
-    global __wholetable
-    __wholetable = True
+    global __is_aggregate
+    __is_aggregate = True
     min = __builtins__['min']
-    int = __builtins__['int']
     vals = [row[column] for row in data]
     return min(parallel.run(parallel.reduce(lambda chunk: min([int(i) for i in chunk])), vals))
 
-def us_to_ms(data, i):
-    return i/1000.0
+def div(data, a, b):
+    try:
+        a = int(a)
+        b = int(b)
+    except ValueError:
+        a = float(a)
+        b = float(b)
+    return a/b
 
-def ms_to_s(data, i):
-    return i/1000.0
-
-def micro_s_to_s(data, i):
-    return i/1000000.0

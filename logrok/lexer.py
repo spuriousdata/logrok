@@ -71,7 +71,8 @@ def t_INTEGER(t):
 
 def t_IDENTIFIER(t):
     r'[\w][\w\.\-]*'
-    t.type = _keywords.get(t.value.lower(), 'IDENTIFIER')
+    t.value = t.value.lower()
+    t.type = _keywords.get(t.value, 'IDENTIFIER')
     if t.type == 'IN':
         t.value = ast.In()
     elif t.type == 'AND':
