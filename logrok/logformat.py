@@ -1,6 +1,7 @@
 import re
-import time
 from functools import partial, wraps
+
+import util
 
 TYPES = {
     'apache-common': "%h %l %u %t \"%r\" %>s %b",
@@ -16,18 +17,6 @@ types = {}
 def settype(name, f):
     global types
     types[name] = f
-
-def reverse_partial(f, *args):
-    """
-    Behaves just like functools.partial() except that
-    args passed in are _appended_ rather than _prepended_
-    to the target functions arg list
-    """
-    @wraps(f)
-    def wrapper(*a, **k):
-        _a = tuple(list(a) + list(args))
-        return f(*_a, **k)
-    return wrapper
 
 class Regex(object):
     @staticmethod
@@ -56,7 +45,7 @@ class Regex(object):
     @staticmethod
     def commontime(name='', nocapture=False):
         if name is not '':
-            settype(name, reverse_partial(time.strptime, "%d/%b/%Y:%H:%M:%S"))
+            settype(name, util.common_strptime)
             name = r'?P<%s>' % name
         if nocapture:
             return r'\[[^\]]+]'

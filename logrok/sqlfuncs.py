@@ -13,7 +13,7 @@ try:
     from collections import Counter
 except ImportError:
     # python < 2.7 compatability
-    from compat.Counder import Counter
+    from compat.Counter import Counter
 
 DEBUG = False
 __is_aggregate = False
@@ -167,3 +167,44 @@ def div(data, a, b):
         b = float(b)
     return a/b
 
+def year(data, d):
+    if type(d) == str:
+        d = data[d]
+    else:
+        d = str(d)
+    return int(d[:4])
+
+def month(data, d):
+    if type(d) == str:
+        d = data[d]
+    else:
+        d = str(d)
+    return int(d[4:6])
+
+def day(data, d):
+    if type(d) == str:
+        d = data[d]
+    else:
+        d = str(d)
+    return int(d[6:8])
+
+def hour(data, d):
+    if type(d) == str:
+        d = data[d]
+    else:
+        d = str(d)
+    return int(d[8:10])
+
+def minute(data, d):
+    if type(d) == str:
+        d = data[d]
+    else:
+        d = str(d)
+    return int(d[10:12])
+
+def second(data, d):
+    if type(d) == str:
+        d = data[d]
+    else:
+        d = str(d)
+    return int(d[12:14])
