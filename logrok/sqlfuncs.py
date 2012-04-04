@@ -125,27 +125,45 @@ def avg(data, column):
     divisor  = parallel.run(parallel.reduce(lambda data: sum([d[1] for d in data])), data)
     return sum(dividend)/sum(divisor)
 
+def mean(data, column):
+    return avg(data, column)
+
+def median(data, column):
+    global __is_aggregate
+    __is_aggregate = True
+    d = sorted(data, key=lambda x: x[column])
+    if len(d) & 0x01:
+        return data[(len(d)-1)/2]
+    m = len(d)/2
+    a, b = data[m-1:m+1]
+    return (a[column]+b[column]/2)
+
+def mode(data, column, ind=0):
+    global __is_aggregate
+    __is_aggregate = True
+    ind = int(ind)
+    return Counter([x[column] for x in data]).most_common(ind+1)[ind][0]
+
 def max(data, column):
-    global __wholetable
-    __wholetable = True
+    global __is_aggregate
+    __is_aggregate = True
     max = __builtins__['max']
-    int = __builtins__['int']
     vals = [row[column] for row in data]
     return max(parallel.run(parallel.reduce(lambda chunk: max([int(i) for i in chunk])), vals))
 
 def min(data, column):
-    global __wholetable
-    __wholetable = True
+    global __is_aggregate
+    __is_aggregate = True
     min = __builtins__['min']
-    int = __builtins__['int']
     vals = [row[column] for row in data]
     return min(parallel.run(parallel.reduce(lambda chunk: min([int(i) for i in chunk])), vals))
 
-def us_to_ms(data, i):
-    return i/1000.0
+def div(data, a, b):
+    try:
+        a = int(a)
+        b = int(b)
+    except ValueError:
+        a = float(a)
+        b = float(b)
+    return a/b
 
-def ms_to_s(data, i):
-    return i/1000.0
-
-def micro_s_to_s(data, i):
-    return i/1000000.0

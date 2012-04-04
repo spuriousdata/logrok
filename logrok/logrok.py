@@ -229,6 +229,7 @@ def main():
     DEBUG = args.debug
     parser.DEBUG = DEBUG
     parallel.DEBUG = DEBUG
+    sqlfuncs.DEBUG = DEBUG
     parser.init()
 
     parallel.numprocs = args.processes
