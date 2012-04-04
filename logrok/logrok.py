@@ -10,6 +10,7 @@ import ast
 import readline
 import atexit
 import time
+import inspect
 from multiprocessing import cpu_count
 try:
     from collections import OrderedDict
@@ -123,7 +124,7 @@ class LoGrok(object):
         #     completer would use readline.readline() to contextually switch out
         #     the returned matches
         self.complete.addopts(['select', 'from log', 'where', 'between',
-            'order by', 'group by', 'limit', ] + sqlfuncs.__funcs__ + self.data[0].keys())
+            'order by', 'group by', 'limit', ] + get_sqlfuncs() + self.data[0].keys())
         while True:
             q = raw_input("logrok> ").strip()
             while not q.endswith(";"):
@@ -158,6 +159,15 @@ class LoGrok(object):
             c = screen.getch()
             if c == ord('x'): break
             if c == ord('q'): screen.prompt("QUERY:", self.query)
+
+def get_sqlfuncs():
+    return map(
+        lambda x: x[0],
+        filter(
+            lambda x: not x[0].startswith('_') and not x[0] == 'do',
+            inspect.getmembers(sqlfuncs, inspect.isfunction)
+        )
+    )
 
 @parallel.map
 def log_match(chunk):
