@@ -37,7 +37,7 @@ def do(stmt, data):
         d = _fields(stmt.fields, d)
     if stmt.orderby:
         if stmt.orderby[1] == 'desc':
-            d = reversed(_orderby(stmt.orderby[0], d))
+            d = list(reversed(_orderby(stmt.orderby[0], d)))
         else:
             d = _orderby(stmt.orderby[0], d)
     if stmt.limit:
